@@ -25,6 +25,7 @@
 #include <ctype.h>
 #include <libgen.h>
 
+#include <ucs/profile/profile_on.h>
 
 /* width of titles in docstring */
 #define UCS_CONFIG_PARSER_DOCSTR_WIDTH         10
@@ -1634,17 +1635,144 @@ static int ucs_config_parser_is_default(const char *env_prefix,
            (getenv(var_name) == NULL);
 }
 
+typedef void (*handle_entry_cb_t)(FILE *stream, const void *opts, const char *env_prefix,
+                                ucs_list_link_t *prefix_list, const char *name,
+                                const ucs_config_field_t *field, unsigned long flags, int is_aliased);
+
+typedef void (*handle_table_cb_t)(char *name, int flags, FILE *stream);
+
 static void
-ucs_config_parser_print_field(FILE *stream, const void *opts, const char *env_prefix,
-                              ucs_list_link_t *prefix_list, const char *name,
-                              const ucs_config_field_t *field, unsigned long flags,
-                              const char *docstr, ...)
+ucs_config_parser_iterate_table_recurse(FILE *stream, const void *opts,
+                                const ucs_config_field_t *fields,
+                                unsigned flags, const char *prefix,
+                                ucs_list_link_t *prefix_list,
+                                handle_entry_cb_t handle_entry_cb)
+{
+    const ucs_config_field_t *field, *aliased_field;
+    ucs_config_parser_prefix_t inner_prefix;
+    size_t alias_table_offset;
+
+    for (field = fields; !ucs_config_field_is_last(field); ++field) {
+        if (ucs_config_is_table_field(field)) {
+            /* Parse with sub-table prefix.
+             * We start the leaf prefix and continue up the hierarchy.
+             */
+            /* Do not add the same prefix several times in a sequence. It can
+             * happen when similar prefix names were used during config
+             * table inheritance, e.g. "IB_" -> "RC_" -> "RC_". We check the
+             * previous entry only, since it is currently impossible if
+             * something like "RC_" -> "IB_" -> "RC_" will be used. */
+            if (ucs_list_is_empty(prefix_list) ||
+                strcmp(ucs_list_tail(prefix_list,
+                                     ucs_config_parser_prefix_t,
+                                     list)->prefix, field->name)) {
+                inner_prefix.prefix = field->name;
+                ucs_list_add_tail(prefix_list, &inner_prefix.list);
+            } else {
+                inner_prefix.prefix = NULL;
+            }
+
+            ucs_config_parser_iterate_table_recurse(stream,
+                                            UCS_PTR_BYTE_OFFSET(opts, field->offset),
+                                            field->parser.arg, flags,
+                                            prefix, prefix_list, handle_entry_cb);
+
+            if (inner_prefix.prefix != NULL) {
+                ucs_list_del(&inner_prefix.list);
+            }
+        } else if (ucs_config_is_alias_field(field)) {
+            if (flags & UCS_CONFIG_PRINT_HIDDEN) {
+                aliased_field =
+                    ucs_config_find_aliased_field(fields, field,
+                                                  &alias_table_offset);
+                if (aliased_field == NULL) {
+                    ucs_fatal("could not find aliased field of %s", field->name);
+                }
+
+                handle_entry_cb(stream,
+                                UCS_PTR_BYTE_OFFSET(opts, alias_table_offset),
+                                prefix, prefix_list,
+                                field->name, aliased_field,
+                                flags, 1);
+            }
+        } else {
+            if (ucs_config_is_deprecated_field(field) &&
+                !(flags & UCS_CONFIG_PRINT_HIDDEN)) {
+                continue;
+            }
+
+            handle_entry_cb(stream, opts, prefix, prefix_list,
+                            field->name, field, flags, 0);
+        }
+    }
+}
+
+static void
+ucs_config_parser_iterate_table(FILE *stream, const void *opts,
+                                const ucs_config_field_t *fields,
+                                unsigned flags, const char *prefix,
+                                handle_table_cb_t handle_table_cb,
+                                handle_entry_cb_t handle_entry_cb)
+{
+    ucs_config_parser_prefix_t table_prefix_elem;
+    UCS_LIST_HEAD(prefix_list);
+
+    table_prefix_elem.prefix = prefix ? prefix : "";
+    ucs_list_add_tail(&prefix_list, &table_prefix_elem.list);
+
+    handle_table_cb((char *)fields->name, flags, stream);
+    ucs_config_parser_iterate_table_recurse(stream, opts, fields, flags, prefix, &prefix_list, handle_entry_cb);
+}
+
+void iterate_ucx_vars(FILE *stream, const char *prefix,
+                      ucs_config_print_flags_t flags,
+                      ucs_list_link_t *config_list,
+                      handle_table_cb_t handle_table_cb,
+                      handle_entry_cb_t handle_entry_cb)
+{
+    const ucs_config_global_list_entry_t *entry;
+    ucs_status_t status;
+    void *opts;
+
+    ucs_list_for_each(entry, config_list, list) {
+        if ((entry->table == NULL) ||
+            (ucs_config_field_is_last(&entry->table[0]))) {
+            continue;
+        }
+
+        opts = ucs_malloc(entry->size, "tmp_opts");
+        if (opts == NULL) {
+            ucs_error("could not allocate configuration of size %zu", entry->size);
+            continue;
+        }
+
+        status = ucs_config_parser_fill_opts(opts, entry->table, prefix,
+                                             entry->prefix, 0);
+        if (status != UCS_OK) {
+            ucs_free(opts);
+            continue;
+        }
+
+        ucs_config_parser_iterate_table(stream, opts, entry->table,
+                                        flags, prefix, handle_table_cb, handle_entry_cb);
+
+        ucs_config_parser_release_opts(opts, entry->table);
+        ucs_free(opts);
+    }
+}
+
+static void
+ucs_config_parser_print_field_cb(FILE *stream, const void *opts, const char *env_prefix,
+                                 ucs_list_link_t *prefix_list, const char *name,
+                                 const ucs_config_field_t *field, unsigned long flags,
+                                 int is_aliased)
 {
     char value_buf[128]  = {0};
     char syntax_buf[256] = {0};
     ucs_config_parser_prefix_t *prefix, *head;
     char *default_config_prefix;
-    va_list ap;
+//    va_list ap;
+//    const char *docstr;
 
     ucs_assert(!ucs_list_is_empty(prefix_list));
     head = ucs_list_head(prefix_list, ucs_config_parser_prefix_t, list);
@@ -1675,12 +1803,13 @@ ucs_config_parser_print_field(FILE *stream, const void *opts, const char *env_pr
                 syntax_buf);
 
         /* Extra docstring */
-        if (docstr != NULL) {
-            fprintf(stream, "# ");
-            va_start(ap, docstr);
-            vfprintf(stream, docstr, ap);
-            va_end(ap);
-            fprintf(stream, "\n");
+        if (is_aliased) {
+//            docstr = "%-*s %s%s%s";
+//            fprintf(stream, "# ");
+//            va_start(ap, docstr);
+//            vfprintf(stream, docstr, ap);
+//            va_end(ap);
+//            fprintf(stream, "\n");
         }
 
         /* Parents in configuration hierarchy */
@@ -1710,83 +1839,10 @@ ucs_config_parser_print_field(FILE *stream, const void *opts, const char *env_pr
     }
 }
 
-static void
-ucs_config_parser_print_opts_recurs(FILE *stream, const void *opts,
-                                    const ucs_config_field_t *fields,
-                                    unsigned flags, const char *prefix,
-                                    ucs_list_link_t *prefix_list)
+void ucs_config_parser_print_table_cb(char *name, int flags, FILE *stream)
 {
-    const ucs_config_field_t *field, *aliased_field;
-    ucs_config_parser_prefix_t *head;
-    ucs_config_parser_prefix_t inner_prefix;
-    size_t alias_table_offset;
-
-    for (field = fields; !ucs_config_field_is_last(field); ++field) {
-        if (ucs_config_is_table_field(field)) {
-            /* Parse with sub-table prefix.
-             * We start the leaf prefix and continue up the hierarchy.
-             */
-            /* Do not add the same prefix several times in a sequence. It can
-             * happen when similar prefix names were used during config
-             * table inheritance, e.g. "IB_" -> "RC_" -> "RC_". We check the
-             * previous entry only, since it is currently impossible if
-             * something like "RC_" -> "IB_" -> "RC_" will be used. */
-            if (ucs_list_is_empty(prefix_list) ||
-                strcmp(ucs_list_tail(prefix_list,
-                                     ucs_config_parser_prefix_t,
-                                     list)->prefix, field->name)) {
-                inner_prefix.prefix = field->name;
-                ucs_list_add_tail(prefix_list, &inner_prefix.list);
-            } else {
-                inner_prefix.prefix = NULL;
-            }
-
-            ucs_config_parser_print_opts_recurs(stream,
-                                                UCS_PTR_BYTE_OFFSET(opts, field->offset),
-                                                field->parser.arg, flags,
-                                                prefix, prefix_list);
-
-            if (inner_prefix.prefix != NULL) {
-                ucs_list_del(&inner_prefix.list);
-            }
-        } else if (ucs_config_is_alias_field(field)) {
-            if (flags & UCS_CONFIG_PRINT_HIDDEN) {
-                aliased_field =
-                    ucs_config_find_aliased_field(fields, field,
-                                                  &alias_table_offset);
-                if (aliased_field == NULL) {
-                    ucs_fatal("could not find aliased field of %s", field->name);
-                }
-
-                head = ucs_list_head(prefix_list, ucs_config_parser_prefix_t, list);
-
-                ucs_config_parser_print_field(stream,
-                                              UCS_PTR_BYTE_OFFSET(opts, alias_table_offset),
-                                              prefix, prefix_list,
-                                              field->name, aliased_field,
-                                              flags, "%-*s %s%s%s",
-                                              UCS_CONFIG_PARSER_DOCSTR_WIDTH,
-                                              "alias of:", prefix,
-                                              head->prefix,
-                                              aliased_field->name);
-            }
-        } else {
-            if (ucs_config_is_deprecated_field(field) &&
-                !(flags & UCS_CONFIG_PRINT_HIDDEN)) {
-                continue;
-            }
-            ucs_config_parser_print_field(stream, opts, prefix, prefix_list,
-                                          field->name, field, flags, NULL);
-        }
-    }
-}
-
-void ucs_config_parser_print_opts(FILE *stream, const char *title, const void *opts,
-                                  ucs_config_field_t *fields, const char *table_prefix,
-                                  const char *prefix, ucs_config_print_flags_t flags)
-{
-    ucs_config_parser_prefix_t table_prefix_elem;
-    UCS_LIST_HEAD(prefix_list);
+    char title[64];
+    snprintf(title, sizeof(title), "%s configuration", name);
 
     if (flags & UCS_CONFIG_PRINT_DOC) {
         fprintf(stream, "# UCX library configuration file\n");
@@ -1801,55 +1857,74 @@ void ucs_config_parser_print_opts(FILE *stream, const char *title, const void *o
         fprintf(stream, "\n");
     }
 
-    if (flags & UCS_CONFIG_PRINT_CONFIG) {
-        table_prefix_elem.prefix = table_prefix ? table_prefix : "";
-        ucs_list_add_tail(&prefix_list, &table_prefix_elem.list);
-        ucs_config_parser_print_opts_recurs(stream, opts, fields, flags,
-                                            prefix, &prefix_list);
-    }
-
     if (flags & UCS_CONFIG_PRINT_HEADER) {
         fprintf(stream, "\n");
     }
+}
+
+void ucs_config_parser_print_opts(FILE *stream, const char *title, const void *opts,
+                                     ucs_config_field_t *fields, const char *table_prefix,
+                                     const char *prefix, ucs_config_print_flags_t flags)
+{
+    ucs_config_parser_iterate_table(stream, opts, fields, flags, prefix, ucs_config_parser_print_table_cb, ucs_config_parser_print_field_cb);
 }
 
 void ucs_config_parser_print_all_opts(FILE *stream, const char *prefix,
                                       ucs_config_print_flags_t flags,
                                       ucs_list_link_t *config_list)
 {
-    const ucs_config_global_list_entry_t *entry;
-    ucs_status_t status;
-    char title[64];
-    void *opts;
-
-    ucs_list_for_each(entry, config_list, list) {
-        if ((entry->table == NULL) ||
-            (ucs_config_field_is_last(&entry->table[0]))) {
-            /* don't print title for an empty configuration table */
-            continue;
-        }
-
-        opts = ucs_malloc(entry->size, "tmp_opts");
-        if (opts == NULL) {
-            ucs_error("could not allocate configuration of size %zu", entry->size);
-            continue;
-        }
-
-        status = ucs_config_parser_fill_opts(opts, entry->table, prefix,
-                                             entry->prefix, 0);
-        if (status != UCS_OK) {
-            ucs_free(opts);
-            continue;
-        }
-
-        snprintf(title, sizeof(title), "%s configuration", entry->name);
-        ucs_config_parser_print_opts(stream, title, opts, entry->table,
-                                     entry->prefix, prefix, flags);
-
-        ucs_config_parser_release_opts(opts, entry->table);
-        ucs_free(opts);
-    }
+    iterate_ucx_vars(stream, prefix, flags, config_list, ucs_config_parser_print_table_cb, ucs_config_parser_print_field_cb);
 }
+
+//static int min(int a, int b, int c)
+//{
+//    if(a <= b && a <= c)
+//    {
+//        return a;
+//    }
+//    else if(b <= a && b <= c)
+//    {
+//        return b;
+//    }
+//
+//    return c;
+//}
+//
+//static int levenshtein(char *s1, char *s2)
+//{
+//    unsigned int x, y, s1len, s2len;
+//    unsigned int matrix[300][300];
+//
+//    s1len = strlen(s1);
+//    s2len = strlen(s2);
+//
+//    matrix[0][0] = 0;
+//    for (x = 1; x <= s2len; x++)
+//        matrix[x][0] = matrix[x-1][0] + 1;
+//    for (y = 1; y <= s1len; y++)
+//        matrix[0][y] = matrix[0][y-1] + 1;
+//    for (x = 1; x <= s2len; x++)
+//        for (y = 1; y <= s1len; y++)
+//            matrix[x][y] = min(matrix[x-1][y] + 1, matrix[x][y-1] + 1, matrix[x-1][y-1] + (s1[y-1] == s2[x-1] ? 0 : 1));
+//
+//    return(matrix[s2len][s1len]);
+//}
+
+//static void fuzzy_cb(void *ucx_var)
+//{
+//    char *ucx_var;
+//    int dist;
+//
+//    dist = levenshtein(user_var, ucx_var);
+//    if (dist < 3) {
+//        ucs_string_buffer_appendf(unused_vars_strb, "%s,", ucx_var);
+//    }
+//}
+
+//static void fuzzy_match(char *user_var, ucs_string_buffer_t *unused_vars_strb) {
+//    ucs_string_buffer_appendf(unused_vars_strb, "suggestions: ");
+//    iterate_ucx_vars(fuzzy_cb);
+//}
 
 static void ucs_config_parser_print_env_vars(const char *prefix)
 {
@@ -1892,6 +1967,8 @@ static void ucs_config_parser_print_env_vars(const char *prefix)
             if (ucs_global_opts.warn_unused_env_vars) {
                 ucs_string_buffer_appendf(&unused_vars_strb, "%s,", var_name);
                 ++num_unused_vars;
+
+//                fuzzy_match(var_name, &unused_vars_strb);
             }
         } else {
             ucs_string_buffer_appendf(&used_vars_strb, "%s ", *envp);

@@ -456,8 +456,8 @@ void ucs_config_parser_release_opts(void *opts, ucs_config_field_t *fields);
  * @param flags          Flags which control the output.
  */
 void ucs_config_parser_print_opts(FILE *stream, const char *title, const void *opts,
-                                  ucs_config_field_t *fields, const char *table_prefix,
-                                  const char *prefix, ucs_config_print_flags_t flags);
+                                     ucs_config_field_t *fields, const char *table_prefix,
+                                     const char *prefix, ucs_config_print_flags_t flags);
 
 /**
  * Print all options defined in the library - names, values, documentation.
