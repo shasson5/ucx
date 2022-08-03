@@ -590,7 +590,7 @@ ucp_wireup_tl_iface_latency(ucp_context_h context,
 
     if (remote_iface_attr->addr_version == UCP_OBJECT_VERSION_V1) {
         /* Address v1 contains just latency overhead */
-        return ucs_max(iface_attr->latency.c, remote_iface_attr->lat_ovh) +
+        return iface_attr->latency.c + remote_iface_attr->lat_ovh +
                (iface_attr->latency.m * context->config.est_num_eps);
     } else {
         /* FP8 is a lossy compression method, so in order to create a symmetric
