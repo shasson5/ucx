@@ -193,6 +193,11 @@ ucs_config_field_t uct_ib_iface_config_table[] = {
    ucs_offsetof(uct_ib_iface_config_t, path_mtu),
                 UCS_CONFIG_TYPE_ENUM(uct_ib_mtu_values)},
 
+  {"NUMA_DISTANCE", "auto",
+   "Distance between IB device CPU and process CPU.\n"
+   "\"auto\" will calculate the distance using system API.",
+   ucs_offsetof(uct_ib_iface_config_t, numa_distance), UCS_CONFIG_TYPE_ULUNITS},
+
   {NULL}
 };
 
@@ -1295,6 +1300,7 @@ UCS_CLASS_INIT_FUNC(uct_ib_iface_t, uct_iface_ops_t *tl_ops,
     self->config.hop_limit          = config->hop_limit;
     self->release_desc.cb           = uct_ib_iface_release_desc;
     self->config.qp_type            = init_attr->qp_type;
+    self->config.numa_distance      = config->numa_distance;
     uct_ib_iface_set_path_mtu(self, config);
 
     if (ucs_derived_of(worker, uct_priv_worker_t)->thread_mode == UCS_THREAD_MODE_MULTI) {
@@ -1439,12 +1445,17 @@ int uct_ib_iface_prepare_rx_wrs(uct_ib_iface_t *iface, ucs_mpool_t *mp,
     return count;
 }
 
+static inline double uct_ib_iface_calc_numa_latency(int min_cpu_distance)
+{
+    return (min_cpu_distance - UCS_NUMA_MIN_DISTANCE) * 20e-9;
+}
+
 static ucs_status_t uct_ib_iface_get_numa_latency(uct_ib_iface_t *iface,
                                                   double *latency)
 {
     uct_ib_device_t *dev = uct_ib_iface_device(iface);
     uct_ib_md_t *md      = uct_ib_iface_md(iface);
-    ucs_sys_cpuset_t temp_cpu_mask, process_affinity;
+    ucs_bitmap_t(64) process_affinity;
 #if HAVE_NUMA
     int distance, min_cpu_distance;
     int cpu, num_cpus;
@@ -1456,22 +1467,31 @@ static ucs_status_t uct_ib_iface_get_numa_latency(uct_ib_iface_t *iface,
         return UCS_OK;
     }
 
-    ret = ucs_sys_getaffinity(&process_affinity);
-    if (ret) {
-        ucs_error("sched_getaffinity() failed: %m");
-        return UCS_ERR_INVALID_PARAM;
-    }
+    /* Check if we got some specific distance value from user config */
+//    if(iface->config.numa_distance != UCS_ULUNITS_AUTO) {
+//        *latency = uct_ib_iface_calc_numa_latency(iface->config.numa_distance);
+//        return UCS_OK;
+//    }
+
+//    ret = ucs_sys_getaffinity(&process_affinity);
+    process_affinity = iface->config.numa_distance;
+//    if (ret) {
+//        ucs_error("sched_getaffinity() failed: %m");
+//        return UCS_ERR_INVALID_PARAM;
+//    }
 
 #if HAVE_NUMA
     /* Try to estimate the extra device latency according to NUMA distance */
     if (dev->numa_node != -1) {
         min_cpu_distance = INT_MAX;
         num_cpus         = ucs_min(CPU_SETSIZE, numa_num_configured_cpus());
-        for (cpu = 0; cpu < num_cpus; ++cpu) {
-            if (!CPU_ISSET(cpu, &process_affinity)) {
-                continue;
-            }
+        UCS_BITMAP_FOR_EACH_BIT(affinity, cpu) {
             distance = numa_distance(ucs_numa_node_of_cpu(cpu), dev->numa_node);
+
+//            if(cpu == 3) {
+//                printf("cpu: %d, dist: %d, dev: %d\n", cpu, distance, dev->numa_node);
+//            }
+
             if (distance >= UCS_NUMA_MIN_DISTANCE) {
                 min_cpu_distance = ucs_min(min_cpu_distance, distance);
             }
@@ -1479,25 +1499,26 @@ static ucs_status_t uct_ib_iface_get_numa_latency(uct_ib_iface_t *iface,
 
         if (min_cpu_distance != INT_MAX) {
             /* set the extra latency to (numa_distance - 10) * 20nsec */
-            *latency = (min_cpu_distance - UCS_NUMA_MIN_DISTANCE) * 20e-9;
+            *latency = uct_ib_iface_calc_numa_latency(min_cpu_distance);
             return UCS_OK;
         }
     }
 #endif
 
     /* Estimate the extra device latency according to its local CPUs mask */
-    CPU_AND(&temp_cpu_mask, &dev->local_cpus, &process_affinity);
-    if (CPU_EQUAL(&process_affinity, &temp_cpu_mask)) {
-        *latency = 0;
-    } else {
-        *latency = 200e-9;
-    }
+//    CPU_AND(&temp_cpu_mask, &dev->local_cpus, &process_affinity);
+//    if (CPU_EQUAL(&process_affinity, &temp_cpu_mask)) {
+//        *latency = 0;
+//    } else {
+//        *latency = 200e-9;
+//    }
     return UCS_OK;
 }
 
 ucs_status_t uct_ib_iface_query(uct_ib_iface_t *iface, size_t xport_hdr_len,
                                 uct_iface_attr_t *iface_attr)
 {
+
     static const uint8_t ib_port_widths[] =
             {[1] = 1, [2] = 4, [4] = 8, [8] = 12, [16] = 2};
     uct_ib_device_t *dev                 = uct_ib_iface_device(iface);

@@ -1232,7 +1232,7 @@ class select_ep_transport : public test_ucp_wireup {
 public:
     static void get_test_variants(std::vector<ucp_test_variant>& variants)
     {
-        add_variant_with_value(variants, UCP_FEATURE_RMA, TEST_RMA, "rma");
+        add_variant_with_value(variants, UCP_FEATURE_TAG, TEST_TAG, "tag");
     }
 
     const char *rma_transport(const entity *e)
@@ -1268,9 +1268,26 @@ UCS_TEST_P(select_ep_transport, fp8_modify_result_v2)
     verify_symmetric_tl_selection("65", "55");
 }
 
+UCS_TEST_P(select_ep_transport, numa_distance)
+{
+    entity *e1, *e2;
+    {
+//        ucs::scoped_setenv numa_env("UCX_IB_NUMA_DISTANCE", "11");
+        e1 = create_entity();
+    }
+
+    {
+//        ucs::scoped_setenv numa_env("UCX_IB_NUMA_DISTANCE", "21");
+        e2 = create_entity();
+    }
+
+    e1->connect(e2, get_ep_params());
+    e2->connect(e1, get_ep_params());
+}
+
 UCP_INSTANTIATE_TEST_CASE_TLS(select_ep_transport, ib, "ib")
-UCP_INSTANTIATE_TEST_CASE_TLS(select_ep_transport, ib_shm, "ib,shm")
-UCP_INSTANTIATE_TEST_CASE_TLS(select_ep_transport, all, "all")
+//UCP_INSTANTIATE_TEST_CASE_TLS(select_ep_transport, ib_shm, "ib,shm")
+//UCP_INSTANTIATE_TEST_CASE_TLS(select_ep_transport, all, "all")
 
 class test_ucp_wireup_fallback_amo : public test_ucp_wireup {
 protected:

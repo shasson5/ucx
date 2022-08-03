@@ -184,6 +184,9 @@ struct uct_ib_iface_config {
 
     /* Path MTU size */
     uct_ib_mtu_t            path_mtu;
+
+    /* Distance between IB device cpu and process cpu */
+    unsigned long           numa_distance;
 };
 
 
@@ -293,6 +296,7 @@ struct uct_ib_iface {
         uint8_t               qp_type;
         uint8_t               force_global_addr;
         enum ibv_mtu          path_mtu;
+        unsigned long         numa_distance;
     } config;
 
     uct_ib_iface_ops_t        *ops;
