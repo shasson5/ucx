@@ -1685,7 +1685,9 @@ ucp_wireup_add_rma_bw_lanes(const ucp_wireup_select_params_t *select_params,
 
     bw_info.criteria.title            = "high-bw remote memory access";
     bw_info.criteria.lane_type        = UCP_LANE_TYPE_RMA_BW;
-    bw_info.max_lanes                 = context->config.ext.max_rndv_lanes;
+    bw_info.max_lanes                 = context->config.ext.proto_enable ?
+                                        UCP_MAX_LANES :
+                                        context->config.ext.max_rndv_lanes;
     bw_info.criteria.local_cmpt_flags = 0;
 
     /* If error handling is requested we require memory invalidation
