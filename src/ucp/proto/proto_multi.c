@@ -83,12 +83,9 @@ ucs_status_t ucp_proto_multi_init(const ucp_proto_multi_init_params_t *params,
     perf.sys_latency        = 0;
     lane_map                = 0;
     max_frag_ratio          = 0;
-    for (i = 0; i < num_lanes; ++i) {
-        if (ucs_popcount(lane_map) == params->max_lanes) {
-            ucs_trace("reached max lanes");
-            break;
-        }
 
+    for (i = 0; (i < num_lanes) && (ucs_popcount(lane_map) < params->max_lanes);
+         ++i) {
         lane      = lanes[i];
         lane_perf = &lanes_perf[lane];
         if ((lane_perf->bandwidth * max_bw_ratio) < max_bandwidth) {

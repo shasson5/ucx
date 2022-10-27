@@ -865,6 +865,32 @@ void uct_iface_get_local_address(uct_iface_local_addr_ns_t *addr_ns,
 int uct_iface_local_is_reachable(uct_iface_local_addr_ns_t *addr_ns,
                                  ucs_sys_namespace_type_t sys_ns_type);
 
+/**
+ * Sets sysfs device in topo module.
+ *
+ * @param [in]  dev_name       Device Name.
+ * @param [in]  sysfs_path     sysfs path for the required device.
+ * @param [in]  is_primary     Indicates whether to treat the device as
+ *                             primary (which will overwrite device name
+ *                             if it already exists).
+ * @param [out] sys_dev        Holds a topo module identifier for the device.
+ */
+void uct_iface_set_sys_dev(const char *dev_name, const char *sysfs_path,
+                           int is_primary, ucs_sys_device_t *sys_dev);
+
+/**
+ * Returns sysfs path for the required device.
+ *
+ * @param [in]  dev_path       Device file path.
+ * @param [in]  dev_name       Device Name.
+ * @param [in]  path_buffer    Allocated buffer to hold the string to be
+ *                             returned.
+ *
+ * @return Pointer to sysfs path or NULL on error.
+ */
+const char *uct_iface_get_sysfs_path(const char *dev_path, const char *dev_name,
+                                     char *path_buffer);
+
 /*
  * Invoke active message handler.
  *

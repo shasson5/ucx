@@ -164,7 +164,7 @@ ucs_status_t ucs_topo_find_device_by_bus_id(const ucs_sys_bus_id_t *bus_id,
         kh_value(&ucs_topo_global_ctx.bus_to_sys_dev_hash, hash_it) = *sys_dev;
 
         /* Set default name to abbreviated BDF */
-        name = ucs_malloc(UCS_SYS_BDF_NAME_MAX, "sys_dev_bdf_name");
+        name = ucs_calloc(UCS_SYS_BDF_NAME_MAX, 1, "sys_dev_bdf_name");
         if (name != NULL) {
             ucs_topo_bus_id_str(bus_id, 1, name, UCS_SYS_BDF_NAME_MAX);
         }

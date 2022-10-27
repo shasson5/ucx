@@ -857,6 +857,92 @@ void uct_iface_get_local_address(uct_iface_local_addr_ns_t *addr_ns,
     }
 }
 
+void uct_iface_set_sys_dev(const char *dev_name, const char *sysfs_path,
+                           int is_primary, ucs_sys_device_t *sys_dev_p)
+{
+    const char *bdf_name;
+    ucs_status_t status;
+    ucs_sys_device_t sys_dev;
+
+    if (sysfs_path == NULL) {
+        goto out_unknown;
+    }
+
+    bdf_name = strrchr(sysfs_path, '/');
+    if (bdf_name == NULL) {
+        goto out_unknown;
+    }
+
+    ++bdf_name; /* Move past '/' separator */
+
+    status = ucs_topo_find_device_by_bdf_name(bdf_name, &sys_dev);
+    if (status != UCS_OK) {
+        goto out_unknown;
+    }
+
+    if (ucs_string_is_empty(ucs_topo_sys_device_get_name(sys_dev)) ||
+        is_primary) {
+        status = ucs_topo_sys_device_set_name(sys_dev, dev_name);
+        ucs_assert_always(status == UCS_OK);
+    }
+
+    *sys_dev_p = sys_dev;
+    ucs_debug("%s: bdf_name %s sys_dev %d", dev_name, bdf_name, sys_dev);
+    return;
+
+out_unknown:
+    *sys_dev_p = UCS_SYS_DEVICE_ID_UNKNOWN;
+    ucs_debug("%s: system device unknown", dev_name);
+}
+
+const char *uct_iface_get_sysfs_path(const char *dev_path, const char *dev_name,
+                                     char *path_buffer)
+{
+    const char *detected_type = NULL;
+    char device_file_path[PATH_MAX];
+    char *sysfs_realpath;
+    struct stat st_buf;
+    char *sysfs_path;
+    int ret;
+
+    /* PF: realpath name is of form /sys/devices/.../0000:03:00.0/infiniband/mlx5_0 */
+    /* SF: realpath name is of form /sys/devices/.../0000:03:00.0/<UUID>/infiniband/mlx5_0 */
+
+    sysfs_realpath = realpath(dev_path, path_buffer);
+    if (sysfs_realpath == NULL) {
+        goto out_undetected;
+    }
+
+    /* Try PF: strip 2 components */
+    sysfs_path = ucs_dirname(sysfs_realpath, 2);
+    ucs_snprintf_safe(device_file_path, sizeof(device_file_path), "%s/device",
+                      sysfs_path);
+    ret = stat(device_file_path, &st_buf);
+    if (ret == 0) {
+        detected_type = "PF";
+        goto out_detected;
+    }
+
+    /* Try SF: strip 3 components (one more) */
+    sysfs_path = ucs_dirname(sysfs_path, 1);
+    ucs_snprintf_safe(device_file_path, sizeof(device_file_path), "%s/device",
+                      sysfs_path);
+    ret = stat(device_file_path, &st_buf);
+    if (ret == 0) {
+        detected_type = "SF";
+        goto out_detected;
+    }
+
+out_undetected:
+    ucs_debug("%s: sysfs path undetected", dev_name);
+    return NULL;
+
+out_detected:
+    ucs_debug("%s: %s sysfs path is '%s'\n", dev_name, detected_type,
+              sysfs_path);
+    return sysfs_path;
+}
+
 int uct_iface_local_is_reachable(uct_iface_local_addr_ns_t *addr_ns,
                                  ucs_sys_namespace_type_t sys_ns_type)
 {
