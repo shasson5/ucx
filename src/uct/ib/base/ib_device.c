@@ -497,7 +497,7 @@ ucs_status_t uct_ib_device_query(uct_ib_device_t *dev,
                                  struct ibv_device *ibv_device)
 {
     const char *dev_name = uct_ib_device_name(dev);
-    const char * dev_path = dev->ibv_context->device->ibdev_path;
+    const char *dev_path = dev->ibv_context->device->ibdev_path;
     char path_buffer[PATH_MAX];
     const char *sysfs_path;
     ucs_status_t status;

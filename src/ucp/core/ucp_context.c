@@ -920,7 +920,7 @@ static int ucp_is_same_device(const uct_tl_resource_desc_t *resource1,
         return 0;
     }
 
-    return (resource1->sys_device == resource2->sys_device);
+    return resource1->sys_device == resource2->sys_device;
 }
 
 static void ucp_add_tl_resource_if_enabled(ucp_context_h context, ucp_tl_md_t *md,
