@@ -857,49 +857,6 @@ void uct_iface_get_local_address(uct_iface_local_addr_ns_t *addr_ns,
     }
 }
 
-void uct_iface_set_sys_dev(const char *dev_name, const char *sysfs_path,
-                           int is_primary, ucs_sys_device_t *sys_dev_p)
-{
-    const char *bdf_name;
-    ucs_status_t status;
-    ucs_sys_device_t sys_dev;
-    int num_devices_pre;
-
-    if (sysfs_path == NULL) {
-        goto out_unknown;
-    }
-
-    bdf_name = strrchr(sysfs_path, '/');
-    if (bdf_name == NULL) {
-        goto out_unknown;
-    }
-
-    ++bdf_name; /* Move past '/' separator */
-
-    /* Store number of devices before we add our device */
-    num_devices_pre = ucs_topo_num_devices();
-
-    status = ucs_topo_find_device_by_bdf_name(bdf_name, &sys_dev);
-    if (status != UCS_OK) {
-        goto out_unknown;
-    }
-
-    /* Overwrite device name if device is new (number of devices increased),
-       or if it's a primary device */
-    if ((num_devices_pre < ucs_topo_num_devices()) || is_primary) {
-        status = ucs_topo_sys_device_set_name(sys_dev, dev_name);
-        ucs_assert_always(status == UCS_OK);
-    }
-
-    *sys_dev_p = sys_dev;
-    ucs_debug("%s: bdf_name %s sys_dev %d", dev_name, bdf_name, sys_dev);
-    return;
-
-out_unknown:
-    *sys_dev_p = UCS_SYS_DEVICE_ID_UNKNOWN;
-    ucs_debug("%s: system device unknown", dev_name);
-}
-
 const char *uct_iface_get_sysfs_path(const char *dev_path, const char *dev_name,
                                      char *path_buffer)
 {

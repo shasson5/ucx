@@ -55,7 +55,7 @@ ucs_status_t ucp_proto_multi_init(const ucp_proto_multi_init_params_t *params,
     num_lanes += ucp_proto_common_find_lanes(&params->super,
                                              params->middle.lane_type,
                                              params->middle.tl_cap_flags,
-                                             UCP_MAX_LANES - 1,
+                                             UCP_PROTO_MAX_LANES - 1,
                                              UCS_BIT(lanes[0]), lanes + 1);
 
     /* Get bandwidth of all lanes and max_bandwidth */

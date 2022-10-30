@@ -138,6 +138,21 @@ ucs_status_t ucs_topo_get_distance(ucs_sys_device_t device1,
 const char *ucs_topo_distance_str(const ucs_sys_dev_distance_t *distance,
                                   char *buffer, size_t max);
 
+/**
+ * Sets a system device.
+ *
+ * @param [in]  dev_name       Device Name.
+ * @param [in]  sysfs_path     sysfs path for the required device.
+ * @param [in]  is_primary     Indicates whether to treat the device as
+ *                             primary (which will overwrite device name
+ *                             if it already exists).
+ *
+ * @return A topo module identifier for the device.
+ */
+
+ucs_sys_device_t ucs_topo_set_sys_dev(const char *dev_name,
+                                      const char *sysfs_path,
+                                      int is_primary);
 
 /**
  * Return system device name in BDF format: "<domain>:<bus>:<device>.<function>".
@@ -164,17 +179,19 @@ ucs_topo_find_device_by_bdf_name(const char *name, ucs_sys_device_t *sys_dev);
 
 
 /**
- * Set a name for a given system device. If the name was set previously, the new
- * name will replace the old one.
+ * Sets a name for a given system device. If the name exists, it will be replaced
+ * only if @ref override_name is specified.
  *
- * @param [in]  sys_dev  System device to set the name for.
- * @param [in]  name     Name to set for this system device. Note: the name can
- *                       be released after this call.
+ * @param [in]  sys_dev        System device to set the name for.
+ * @param [in]  name           Name to set for this system device. Note: the name can
+ *                             be released after this call.
+ * @param [in]  override_name  Indicates whether to override device name
+ *                             if it already exists.
  *
  * @return UCS_OK if the name was set, error otherwise.
  */
 ucs_status_t
-ucs_topo_sys_device_set_name(ucs_sys_device_t sys_dev, const char *name);
+ucs_topo_sys_device_set_name(ucs_sys_device_t sys_dev, const char *name, int override_name);
 
 /**
  * Calculates and returns a specific PCIe device BW.

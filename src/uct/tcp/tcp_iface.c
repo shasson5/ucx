@@ -891,7 +891,7 @@ ucs_status_t uct_tcp_query_devices(uct_md_h md,
         sysfs_path = uct_iface_get_sysfs_path(dev_path, entry->d_name,
                                               path_buffer);
 
-        uct_iface_set_sys_dev(entry->d_name, sysfs_path, 0, &sys_dev);
+        sys_dev = ucs_topo_set_sys_dev(entry->d_name, sysfs_path, 0);
 
         ucs_snprintf_zero(devices[num_devices].name,
                           sizeof(devices[num_devices].name),

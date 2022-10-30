@@ -1418,8 +1418,8 @@ ucp_wireup_am_bw_score_func(const ucp_worker_iface_t *wiface,
 static int
 ucp_wireup_md_map_count_valid(ucp_context_h context, ucp_md_map_t md_map)
 {
-    return (context->config.ext.proto_enable ||
-            (ucs_popcount(md_map) < UCP_MAX_OP_MDS));
+    return context->config.ext.proto_enable ||
+           (ucs_popcount(md_map) < UCP_MAX_OP_MDS);
 }
 
 static unsigned
@@ -1693,7 +1693,7 @@ ucp_wireup_add_rma_bw_lanes(const ucp_wireup_select_params_t *select_params,
     bw_info.criteria.title            = "high-bw remote memory access";
     bw_info.criteria.lane_type        = UCP_LANE_TYPE_RMA_BW;
     bw_info.max_lanes                 = context->config.ext.proto_enable ?
-                                        UCP_MAX_LANES :
+                                        UCP_PROTO_MAX_LANES :
                                         context->config.ext.max_rndv_lanes;
     bw_info.criteria.local_cmpt_flags = 0;
 

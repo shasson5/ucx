@@ -324,6 +324,49 @@ const char *ucs_topo_distance_str(const ucs_sys_dev_distance_t *distance,
     return ucs_string_buffer_cstr(&strb);
 }
 
+ucs_sys_device_t ucs_topo_set_sys_dev(const char *dev_name,
+                                      const char *sysfs_path,
+                                      int is_primary)
+{
+    const char *bdf_name;
+    ucs_status_t status;
+    ucs_sys_device_t sys_dev;
+    int num_devices_pre, override_name;
+
+    if (sysfs_path == NULL) {
+        goto out_unknown;
+    }
+
+    bdf_name = strrchr(sysfs_path, '/');
+    if (bdf_name == NULL) {
+        goto out_unknown;
+    }
+
+    ++bdf_name; /* Move past '/' separator */
+
+    /* Store number of devices before we add our device */
+    num_devices_pre = ucs_topo_num_devices();
+
+    status = ucs_topo_find_device_by_bdf_name(bdf_name, &sys_dev);
+    if (status != UCS_OK) {
+        goto out_unknown;
+    }
+
+    /* Override device name if device is new (number of devices increased),
+       or if it's a primary device */
+    override_name = (num_devices_pre < ucs_topo_num_devices()) || is_primary;
+    status = ucs_topo_sys_device_set_name(sys_dev, dev_name, override_name);
+
+    ucs_assert_always(status == UCS_OK);
+
+    ucs_debug("%s: bdf_name %s sys_dev %d", dev_name, bdf_name, sys_dev);
+    return sys_dev;
+
+out_unknown:
+    ucs_debug("%s: system device unknown", dev_name);
+    return UCS_SYS_DEVICE_ID_UNKNOWN;
+}
+
 const char *
 ucs_topo_sys_device_bdf_name(ucs_sys_device_t sys_dev, char *buffer, size_t max)
 {
@@ -368,7 +411,7 @@ ucs_topo_find_device_by_bdf_name(const char *name, ucs_sys_device_t *sys_dev)
 }
 
 ucs_status_t
-ucs_topo_sys_device_set_name(ucs_sys_device_t sys_dev, const char *name)
+ucs_topo_sys_device_set_name(ucs_sys_device_t sys_dev, const char *name, int override_name)
 {
     ucs_spin_lock(&ucs_topo_global_ctx.lock);
 
@@ -379,9 +422,11 @@ ucs_topo_sys_device_set_name(ucs_sys_device_t sys_dev, const char *name)
         return UCS_ERR_INVALID_PARAM;
     }
 
-    ucs_free(ucs_topo_global_ctx.devices[sys_dev].name);
-    ucs_topo_global_ctx.devices[sys_dev].name = ucs_strdup(name,
-                                                           "sys_dev_name");
+    if (override_name) {
+        ucs_free(ucs_topo_global_ctx.devices[sys_dev].name);
+        ucs_topo_global_ctx.devices[sys_dev].name = ucs_strdup(name,
+                                                               "sys_dev_name");
+    }
     ucs_spin_unlock(&ucs_topo_global_ctx.lock);
 
     return UCS_OK;

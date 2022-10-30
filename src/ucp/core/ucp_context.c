@@ -908,19 +908,12 @@ static int ucp_is_resource_enabled(const uct_tl_resource_desc_t *resource,
     return device_enabled && tl_enabled;
 }
 
-static int ucp_is_same_device(const uct_tl_resource_desc_t *resource1,
-                              const uct_tl_resource_desc_t *resource2)
+static int ucp_tl_resource_is_same_device(const uct_tl_resource_desc_t *resource1,
+                                          const uct_tl_resource_desc_t *resource2)
 {
-    if (!strcmp(resource1->dev_name, resource2->dev_name)) {
-        return 1;
-    }
-
-    if ((resource1->sys_device == UCS_SYS_DEVICE_ID_UNKNOWN) ||
-        (resource2->sys_device == UCS_SYS_DEVICE_ID_UNKNOWN)) {
-        return 0;
-    }
-
-    return resource1->sys_device == resource2->sys_device;
+    return !strcmp(resource1->dev_name, resource2->dev_name) ||
+           ((resource1->sys_device != UCS_SYS_DEVICE_ID_UNKNOWN) &&
+           (resource1->sys_device == resource2->sys_device));
 }
 
 static void ucp_add_tl_resource_if_enabled(ucp_context_h context, ucp_tl_md_t *md,
@@ -951,7 +944,7 @@ static void ucp_add_tl_resource_if_enabled(ucp_context_h context, ucp_tl_md_t *m
 
         dev_index = 0;
         for (i = 0; i < context->num_tls; ++i) {
-            if (ucp_is_same_device(&context->tl_rscs[i].tl_rsc, resource)) {
+            if (ucp_tl_resource_is_same_device(&context->tl_rscs[i].tl_rsc, resource)) {
                 dev_index = context->tl_rscs[i].dev_index;
                 break;
             } else {
