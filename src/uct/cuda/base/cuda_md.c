@@ -342,7 +342,8 @@ uct_cuda_base_query_md_resources(uct_component_t *component,
         if (status == UCS_OK) {
             ucs_snprintf_safe(device_name, sizeof(device_name), "GPU%d",
                               cuda_device);
-            status = ucs_topo_sys_device_set_name(sys_dev, device_name, 1);
+            status = ucs_topo_sys_device_set_name(
+                    sys_dev, device_name, UCS_TOPO_DEVICE_NAME_PRIORITY_CUDA);
             ucs_assert_always(status == UCS_OK);
         }
     }

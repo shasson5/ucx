@@ -31,8 +31,9 @@
 typedef int64_t ucs_bus_id_bit_rep_t;
 
 typedef struct {
-    ucs_sys_bus_id_t bus_id;
-    char             *name;
+    ucs_sys_bus_id_t                bus_id;
+    char                            *name;
+    ucs_topo_device_name_priority_t name_priority;
 } ucs_topo_sys_device_info_t;
 
 KHASH_MAP_INIT_INT64(bus_to_sys_dev, ucs_sys_device_t);
@@ -171,7 +172,8 @@ ucs_status_t ucs_topo_find_device_by_bus_id(const ucs_sys_bus_id_t *bus_id,
 
         ucs_topo_global_ctx.devices[*sys_dev].bus_id = *bus_id;
         ucs_topo_global_ctx.devices[*sys_dev].name   = name;
-
+        ucs_topo_global_ctx.devices[*sys_dev].name_priority =
+                UCS_TOPO_DEVICE_NAME_PRIORITY_DEFAULT;
         ucs_debug("added sys_dev %d for bus id %s", *sys_dev, name);
     }
 
@@ -324,14 +326,13 @@ const char *ucs_topo_distance_str(const ucs_sys_dev_distance_t *distance,
     return ucs_string_buffer_cstr(&strb);
 }
 
-ucs_sys_device_t ucs_topo_set_sys_dev(const char *dev_name,
-                                      const char *sysfs_path,
-                                      int is_primary)
+ucs_sys_device_t
+ucs_topo_get_sysfs_dev(const char *dev_name, const char *sysfs_path,
+                       ucs_topo_device_name_priority_t name_priority)
 {
+    ucs_sys_device_t sys_dev = UCS_SYS_DEVICE_ID_UNKNOWN;
     const char *bdf_name;
     ucs_status_t status;
-    ucs_sys_device_t sys_dev;
-    int num_devices_pre, override_name;
 
     if (sysfs_path == NULL) {
         goto out_unknown;
@@ -344,20 +345,15 @@ ucs_sys_device_t ucs_topo_set_sys_dev(const char *dev_name,
 
     ++bdf_name; /* Move past '/' separator */
 
-    /* Store number of devices before we add our device */
-    num_devices_pre = ucs_topo_num_devices();
-
     status = ucs_topo_find_device_by_bdf_name(bdf_name, &sys_dev);
     if (status != UCS_OK) {
         goto out_unknown;
     }
 
-    /* Override device name if device is new (number of devices increased),
-       or if it's a primary device */
-    override_name = (num_devices_pre < ucs_topo_num_devices()) || is_primary;
-    status = ucs_topo_sys_device_set_name(sys_dev, dev_name, override_name);
-
-    ucs_assert_always(status == UCS_OK);
+    status = ucs_topo_sys_device_set_name(sys_dev, dev_name, name_priority);
+    if (status != UCS_OK) {
+        goto out_unknown;
+    }
 
     ucs_debug("%s: bdf_name %s sys_dev %d", dev_name, bdf_name, sys_dev);
     return sys_dev;
@@ -411,7 +407,8 @@ ucs_topo_find_device_by_bdf_name(const char *name, ucs_sys_device_t *sys_dev)
 }
 
 ucs_status_t
-ucs_topo_sys_device_set_name(ucs_sys_device_t sys_dev, const char *name, int override_name)
+ucs_topo_sys_device_set_name(ucs_sys_device_t sys_dev, const char *name,
+                             ucs_topo_device_name_priority_t priority)
 {
     ucs_spin_lock(&ucs_topo_global_ctx.lock);
 
@@ -422,10 +419,11 @@ ucs_topo_sys_device_set_name(ucs_sys_device_t sys_dev, const char *name, int ove
         return UCS_ERR_INVALID_PARAM;
     }
 
-    if (override_name) {
+    if (priority > ucs_topo_global_ctx.devices[sys_dev].name_priority) {
         ucs_free(ucs_topo_global_ctx.devices[sys_dev].name);
         ucs_topo_global_ctx.devices[sys_dev].name = ucs_strdup(name,
                                                                "sys_dev_name");
+        ucs_topo_global_ctx.devices[sys_dev].name_priority = priority;
     }
     ucs_spin_unlock(&ucs_topo_global_ctx.lock);
 

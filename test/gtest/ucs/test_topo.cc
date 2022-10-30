@@ -28,7 +28,8 @@ UCS_TEST_F(test_topo, find_device_by_bus_id) {
     status = ucs_topo_find_device_by_bus_id(&dummy_bus_id, &dev1);
     ASSERT_UCS_OK(status);
     EXPECT_LT(dev1, UCS_SYS_DEVICE_ID_MAX);
-    status = ucs_topo_sys_device_set_name(dev1, "test_bus_id_1", 1);
+    status = ucs_topo_sys_device_set_name(dev1, "test_bus_id_1",
+                                          UCS_TOPO_DEVICE_NAME_PRIORITY_IB);
     ASSERT_UCS_OK(status);
 
     status = ucs_topo_get_device_bus_id(dev1, &bus_id1);
@@ -45,7 +46,8 @@ UCS_TEST_F(test_topo, find_device_by_bus_id) {
     ASSERT_UCS_OK(status);
     EXPECT_EQ((unsigned)dev1 + 1, dev2);
     EXPECT_LT(dev2, UCS_SYS_DEVICE_ID_MAX);
-    status = ucs_topo_sys_device_set_name(dev2, "test_bus_id_2", 1);
+    status = ucs_topo_sys_device_set_name(dev2, "test_bus_id_2",
+                                          UCS_TOPO_DEVICE_NAME_PRIORITY_IB);
     ASSERT_UCS_OK(status);
 
     status = ucs_topo_get_device_bus_id(dev2, &bus_id2);
@@ -84,7 +86,8 @@ UCS_TEST_F(test_topo, bdf_name) {
     ucs_status_t status = ucs_topo_find_device_by_bdf_name(bdf_name, &sys_dev);
     ASSERT_UCS_OK(status);
     ASSERT_NE(UCS_SYS_DEVICE_ID_UNKNOWN, sys_dev);
-    status = ucs_topo_sys_device_set_name(sys_dev, "test_bdf_name", 1);
+    status = ucs_topo_sys_device_set_name(sys_dev, "test_bdf_name",
+                                          UCS_TOPO_DEVICE_NAME_PRIORITY_IB);
     ASSERT_UCS_OK(status);
 
     char name_buffer[UCS_SYS_BDF_NAME_MAX];
@@ -102,7 +105,8 @@ UCS_TEST_F(test_topo, bdf_name_zero_domain) {
     ucs_status_t status = ucs_topo_find_device_by_bdf_name(short_bdf, &sys_dev);
     ASSERT_UCS_OK(status);
     ASSERT_NE(UCS_SYS_DEVICE_ID_UNKNOWN, sys_dev);
-    status = ucs_topo_sys_device_set_name(sys_dev, "test_bdf_name_zd", 1);
+    status = ucs_topo_sys_device_set_name(sys_dev, "test_bdf_name_zd",
+                                          UCS_TOPO_DEVICE_NAME_PRIORITY_IB);
     ASSERT_UCS_OK(status);
 
     char name_buffer[UCS_SYS_BDF_NAME_MAX];
