@@ -170,8 +170,8 @@ ucs_status_t ucs_topo_find_device_by_bus_id(const ucs_sys_bus_id_t *bus_id,
             ucs_topo_bus_id_str(bus_id, 1, name, UCS_SYS_BDF_NAME_MAX);
         }
 
-        ucs_topo_global_ctx.devices[*sys_dev].bus_id = *bus_id;
-        ucs_topo_global_ctx.devices[*sys_dev].name   = name;
+        ucs_topo_global_ctx.devices[*sys_dev].bus_id        = *bus_id;
+        ucs_topo_global_ctx.devices[*sys_dev].name          = name;
         ucs_topo_global_ctx.devices[*sys_dev].name_priority = 0;
         ucs_debug("added sys_dev %d for bus id %s", *sys_dev, name);
     }
