@@ -34,17 +34,6 @@ typedef struct ucs_sys_bus_id {
     uint8_t  function; /* range: 0 to 7 */
 } ucs_sys_bus_id_t;
 
-/*
- * Defines priorities for each transport, which is
- * used to override device name.
- */
-typedef enum {
-    UCS_TOPO_DEVICE_NAME_PRIORITY_DEFAULT,
-    UCS_TOPO_DEVICE_NAME_PRIORITY_TCP,
-    UCS_TOPO_DEVICE_NAME_PRIORITY_IB,
-    UCS_TOPO_DEVICE_NAME_PRIORITY_CUDA
-} ucs_topo_device_name_priority_t;
-
 /**
  * @ingroup UCS_RESOURCE
  * System Device Index
@@ -159,9 +148,9 @@ const char *ucs_topo_distance_str(const ucs_sys_dev_distance_t *distance,
  * @return A topo module identifier for the device.
  */
 
-ucs_sys_device_t
-ucs_topo_get_sysfs_dev(const char *dev_name, const char *sysfs_path,
-                       ucs_topo_device_name_priority_t name_priority);
+ucs_sys_device_t ucs_topo_get_sysfs_dev(const char *dev_name,
+                                        const char *sysfs_path,
+                                        unsigned name_priority);
 
 /**
  * Return system device name in BDF format: "<domain>:<bus>:<device>.<function>".
@@ -199,9 +188,8 @@ ucs_topo_find_device_by_bdf_name(const char *name, ucs_sys_device_t *sys_dev);
  *
  * @return UCS_OK if the name was set, error otherwise.
  */
-ucs_status_t
-ucs_topo_sys_device_set_name(ucs_sys_device_t sys_dev, const char *name,
-                             ucs_topo_device_name_priority_t priority);
+ucs_status_t ucs_topo_sys_device_set_name(ucs_sys_device_t sys_dev,
+                                          const char *name, unsigned priority);
 
 /**
  * Calculates and returns a specific PCIe device BW.
