@@ -1260,25 +1260,25 @@ run_tests() {
 	try_load_cuda_env
 
 	# all are running mpi tests
-	run_mpi_tests
+#	run_mpi_tests
 
 	# build for devel tests and gtest
-	build devel --enable-gtest
+#	build devel --enable-gtest
 
 	# devel mode tests
-	do_distributed_task 0 4 test_unused_env_var
-	do_distributed_task 1 4 run_ucx_info
-	do_distributed_task 2 4 run_ucx_tl_check
-	do_distributed_task 3 4 test_ucs_dlopen
-	do_distributed_task 0 4 test_env_var_aliases
-	do_distributed_task 1 4 test_malloc_hook
-	do_distributed_task 2 4 test_init_mt
-	do_distributed_task 3 4 run_ucp_client_server
+#	do_distributed_task 0 4 test_unused_env_var
+#	do_distributed_task 1 4 run_ucx_info
+#	do_distributed_task 2 4 run_ucx_tl_check
+#	do_distributed_task 3 4 test_ucs_dlopen
+#	do_distributed_task 0 4 test_env_var_aliases
+#	do_distributed_task 1 4 test_malloc_hook
+#	do_distributed_task 2 4 test_init_mt
+#	do_distributed_task 3 4 run_ucp_client_server
 
 	# long devel tests
-	do_distributed_task 0 4 run_ucp_hello
-	do_distributed_task 1 4 run_uct_hello
-	do_distributed_task 2 4 run_ucx_perftest
+#	do_distributed_task 0 4 run_ucp_hello
+#	do_distributed_task 1 4 run_uct_hello
+#	do_distributed_task 2 4 run_ucx_perftest
 	do_distributed_task 3 4 run_io_demo
 
 	# all are running gtest
@@ -1311,7 +1311,7 @@ run_test_proto_enable() {
 	run_gtest "default"
 }
 
-prepare
+#prepare
 try_load_cuda_env
 
 if [ -n "$JENKINS_RUN_TESTS" ] || [ -n "$RUN_TESTS" ]
