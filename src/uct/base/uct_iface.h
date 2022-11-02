@@ -868,10 +868,10 @@ int uct_iface_local_is_reachable(uct_iface_local_addr_ns_t *addr_ns,
 /**
  * Returns sysfs path for the required device.
  *
- * @param [in]  dev_path       Device file path.
- * @param [in]  dev_name       Device Name.
- * @param [in]  path_buffer    Allocated buffer to hold the string to be
- *                             returned.
+ * @param [in]  dev_path    Device file path.
+ * @param [in]  dev_name    Device Name.
+ * @param [in]  path_buffer Allocated buffer to hold the string to be
+ *                          returned.
  *
  * @return Pointer to sysfs path or NULL on error.
  */
