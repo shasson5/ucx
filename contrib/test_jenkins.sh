@@ -643,6 +643,8 @@ run_io_demo() {
 		test_args="$@ -o write,read -d 128:4194304 -P 2 -i 10000 -w 10 -c 5 -m ${mem_type} -q"
 		test_name=io_demo
 
+        echo $server_rdma_addr
+        exit(1)
 		for server_ip in $server_rdma_addr $server_nonrdma_addr
 		do
 			export UCX_PROTO_ENABLE=y
