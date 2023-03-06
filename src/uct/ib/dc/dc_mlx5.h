@@ -153,6 +153,7 @@ typedef enum {
     UCT_DC_TX_POLICY_DCS,
     UCT_DC_TX_POLICY_DCS_QUOTA,
     UCT_DC_TX_POLICY_RAND,
+    UCT_DC_TX_POLICY_HW_DCS,
     UCT_DC_TX_POLICY_LAST
 } uct_dc_tx_policy_t;
 

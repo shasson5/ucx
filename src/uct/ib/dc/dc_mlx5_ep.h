@@ -260,6 +260,18 @@ static UCS_F_ALWAYS_INLINE int uct_dc_mlx5_iface_is_dci_rand(uct_dc_mlx5_iface_t
     return iface->tx.policy == UCT_DC_TX_POLICY_RAND;
 }
 
+static UCS_F_ALWAYS_INLINE int
+uct_dc_mlx5_iface_is_hw_dcs(uct_dc_mlx5_iface_t *iface)
+{
+    return iface->tx.policy == UCT_DC_TX_POLICY_HW_DCS;
+}
+
+static UCS_F_ALWAYS_INLINE int
+uct_dc_mlx5_iface_is_dci_shared(uct_dc_mlx5_iface_t *iface)
+{
+    return uct_dc_mlx5_iface_is_hw_dcs(iface) || uct_dc_mlx5_iface_is_dci_rand(iface);
+}
+
 static UCS_F_ALWAYS_INLINE ucs_arbiter_group_t*
 uct_dc_mlx5_ep_rand_arb_group(uct_dc_mlx5_iface_t *iface, uct_dc_mlx5_ep_t *ep)
 {
@@ -293,7 +305,7 @@ uct_dc_mlx5_ep_from_dci(uct_dc_mlx5_iface_t *iface, uint8_t dci_index)
 {
     /* Can be used with dcs* policies only, with rand policy every dci may
      * be used by many eps */
-    ucs_assert(!uct_dc_mlx5_iface_is_dci_rand(iface));
+    ucs_assert(!uct_dc_mlx5_iface_is_dci_shared(iface));
     return iface->tx.dcis[dci_index].ep;
 }
 
@@ -309,6 +321,9 @@ uct_dc_mlx5_ep_basic_init(uct_dc_mlx5_iface_t *iface, uct_dc_mlx5_ep_t *ep)
     if (uct_dc_mlx5_iface_is_dci_rand(iface)) {
         /* coverity[dont_call] */
         ep->dci               = rand_r(&iface->tx.rand_seed) % iface->tx.ndci;
+    } else if (uct_dc_mlx5_iface_is_hw_dcs(iface)) {
+        ucs_assert(iface->tx.ndci == 1);
+        ep->dci = 0;
         ep->dci_channel_index = iface->tx.dcis[ep->dci].next_channel_index++ %
                                 iface->tx.num_dci_channels;
     } else {
@@ -363,7 +378,7 @@ uct_dc_mlx5_iface_progress_pending(uct_dc_mlx5_iface_t *iface,
          * empty.
          */
         if (uct_dc_mlx5_iface_dci_can_alloc(iface, pool_index) &&
-            !uct_dc_mlx5_iface_is_dci_rand(iface)) {
+            !uct_dc_mlx5_iface_is_dci_shared(iface)) {
             ucs_arbiter_dispatch(dci_waitq, 1,
                                  uct_dc_mlx5_iface_dci_do_pending_wait, NULL);
         }
@@ -433,7 +448,7 @@ uct_dc_mlx5_iface_dci_put(uct_dc_mlx5_iface_t *iface, uint8_t dci_index)
 
     ucs_assert(dci_index != UCT_DC_MLX5_EP_NO_DCI);
 
-    if (uct_dc_mlx5_iface_is_dci_rand(iface) ||
+    if (uct_dc_mlx5_iface_is_dci_shared(iface) ||
         uct_dc_mlx5_iface_is_dci_keepalive(iface, dci_index)) {
         return;
     }
@@ -491,7 +506,7 @@ static inline void uct_dc_mlx5_iface_dci_alloc(uct_dc_mlx5_iface_t *iface, uct_d
     uint8_t pool_index           = uct_dc_mlx5_ep_pool_index(ep);
     uct_dc_mlx5_dci_pool_t *pool = &iface->tx.dci_pool[pool_index];
 
-    ucs_assert(!uct_dc_mlx5_iface_is_dci_rand(iface));
+    ucs_assert(!uct_dc_mlx5_iface_is_dci_shared(iface));
     ucs_assert(pool->release_stack_top < pool->stack_top);
     ep->dci = pool->stack[pool->stack_top];
     ucs_assert(ep->dci >= (iface->tx.ndci * pool_index));
@@ -514,7 +529,7 @@ uct_dc_mlx5_iface_dci_schedule_release(uct_dc_mlx5_iface_t *iface, uint8_t dci)
     uint8_t pool_index = uct_dc_mlx5_iface_dci_pool_index(iface, dci);
     uint8_t stack_top;
 
-    ucs_assert(!uct_dc_mlx5_iface_is_dci_rand(iface));
+    ucs_assert(!uct_dc_mlx5_iface_is_dci_shared(iface));
 
     /* adding current DCI into release stack and mark pool for
      * processing, see details in @ref uct_dc_mlx5_dci_pool_t description */
@@ -535,7 +550,7 @@ uct_dc_mlx5_iface_dci_detach(uct_dc_mlx5_iface_t *iface, uct_dc_mlx5_ep_t *ep)
 {
     uint8_t dci_index = ep->dci;
 
-    ucs_assert(!uct_dc_mlx5_iface_is_dci_rand(iface));
+    ucs_assert(!uct_dc_mlx5_iface_is_dci_shared(iface));
     ucs_assert(dci_index != UCT_DC_MLX5_EP_NO_DCI);
     ucs_assert(iface->tx.dci_pool[uct_dc_mlx5_ep_pool_index(ep)].stack_top > 0);
 
@@ -562,7 +577,7 @@ uct_dc_mlx5_iface_dci_get(uct_dc_mlx5_iface_t *iface, uct_dc_mlx5_ep_t *ep)
 
     ucs_assert(!iface->super.super.config.tx_moderation);
 
-    if (uct_dc_mlx5_iface_is_dci_rand(iface)) {
+    if (uct_dc_mlx5_iface_is_dci_shared(iface)) {
         /* Silence Coverity - in random policy the endpoint always has an
          * assigned DCI */
         ucs_assert(ep->dci != UCT_DC_MLX5_EP_NO_DCI);
@@ -684,7 +699,7 @@ static inline struct mlx5_grh_av *uct_dc_mlx5_ep_get_grh(uct_dc_mlx5_ep_t *ep)
                 return _status; \
             } \
         } \
-        if (!uct_dc_mlx5_iface_is_dci_rand(_iface)) { \
+        if (!uct_dc_mlx5_iface_is_dci_shared(_iface)) { \
             uct_rc_iface_check_pending(&(_iface)->super.super, \
                                        &(_ep)->arb_group); \
         } \
