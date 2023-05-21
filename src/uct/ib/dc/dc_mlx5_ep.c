@@ -125,6 +125,15 @@ uct_dc_mlx5_iface_atomic_post(uct_dc_mlx5_iface_t *iface, uct_dc_mlx5_ep_t *ep,
     uct_rc_txqp_add_send_op(txqp, &desc->super);
 }
 
+int counter2 = 0;
+
+static void atomic_comp(uct_rc_iface_send_op_t *op, const void *resp)
+{
+    if (op != NULL) {
+        counter2 ++;
+    }
+}
+
 static ucs_status_t UCS_F_ALWAYS_INLINE
 uct_dc_mlx5_ep_atomic_op_post(uct_ep_h tl_ep, unsigned opcode, unsigned size,
                               uint64_t value, uint64_t remote_addr, uct_rkey_t rkey)
@@ -149,7 +158,8 @@ uct_dc_mlx5_ep_atomic_op_post(uct_ep_h tl_ep, unsigned opcode, unsigned size,
         return status;
     }
 
-    UCT_RC_IFACE_GET_TX_ATOMIC_DESC(&iface->super.super, &iface->super.tx.atomic_desc_mp, desc);
+    UCT_RC_IFACE_GET_TX_ATOMIC_DESC2(&iface->super.super, &iface->super.tx.atomic_desc_mp, desc,
+            atomic_comp);
     uct_dc_mlx5_iface_atomic_post(iface, ep, op, desc, size, remote_addr, rkey,
                                   compare_mask, compare, swap_mask, swap);
     return UCS_OK;

@@ -51,8 +51,8 @@ static void ucs_mpool_chunk_leak_check(ucs_mpool_t *mp, ucs_mpool_chunk_t *chunk
                 data->ops->obj_str(mp, obj, &strb);
                 ucs_string_buffer_appendf(&strb, "}");
             }
-            ucs_warn("object %p%s was not returned to mpool %s", obj,
-                     ucs_string_buffer_cstr(&strb), ucs_mpool_name(mp));
+//            ucs_warn("object %p%s was not returned to mpool %s", obj,
+//                     ucs_string_buffer_cstr(&strb), ucs_mpool_name(mp));
         }
     }
 }

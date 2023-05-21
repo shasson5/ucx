@@ -75,6 +75,10 @@
     _desc->unpack_cb         = _unpack_cb;
 
 
+#define UCT_RC_IFACE_GET_TX_ATOMIC_DESC2(_iface, _mp, _desc, _handler) \
+    UCT_RC_IFACE_GET_TX_DESC(_iface, _mp, _desc) \
+       _desc->super.handler   = _handler; \
+
 #define UCT_RC_IFACE_GET_TX_ATOMIC_DESC(_iface, _mp, _desc) \
     UCT_RC_IFACE_GET_TX_DESC(_iface, _mp, _desc) \
     _desc->super.handler = (uct_rc_send_handler_t)ucs_mpool_put;

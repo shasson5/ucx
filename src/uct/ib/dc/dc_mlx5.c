@@ -1617,6 +1617,8 @@ err:
     return status;
 }
 
+extern int counter2;
+
 static UCS_CLASS_CLEANUP_FUNC(uct_dc_mlx5_iface_t)
 {
     ucs_trace_func("");
@@ -1631,6 +1633,9 @@ static UCS_CLASS_CLEANUP_FUNC(uct_dc_mlx5_iface_t)
             &self->tx.dci_release_prog_id);
     uct_dc_mlx5_iface_dcis_destroy(self, self->tx.num_dci_pools,
                                    uct_dc_mlx5_iface_total_ndci(self));
+
+    printf("counter: %u counter2: %u\n", counter, counter2);
+
 }
 
 UCS_CLASS_DEFINE(uct_dc_mlx5_iface_t, uct_rc_mlx5_iface_common_t);
