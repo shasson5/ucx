@@ -99,11 +99,16 @@ class Sim(object):
         r += "     + Old +\n"
         return r
     
-    def tick(self, ep_number):
-        logger.debug(f"Tick EP {ep_number}")
+    def add_packets(self, ep_number):
+        logger.debug(f"completed EP {ep_number}")
         self._msg_by_ep[ep_number] = self._msg_by_ep.get(ep_number, 0) + 1
         self._enqueue(ep_number)
-
+        
+        if ep_number not in self._rc_eps and ep_number not in self._dc_eps:
+            logger.debug(f"EP {ep_number} starts in DC")
+            self._dc_eps.add(ep_number)
+    
+    def tick(self):
         for ep in range(0, self._endpoints):
             count = 0
             for q in self._queues:
@@ -111,10 +116,6 @@ class Sim(object):
                     count += 1
             if count >= self._rc_thresh * self._queues_number:
                 self._important_eps.add(ep)
-
-        if ep_number not in self._rc_eps and ep_number not in self._dc_eps:
-            logger.debug(f"EP {ep_number} starts in DC")
-            self._dc_eps.add(ep_number)
 
         for ep in self._important_eps:
             if ep in self._rc_eps:
@@ -200,7 +201,8 @@ def main(queue_length, queues_number, endpoints, ticks, rc_thresh, rc_avail, dis
     distribution = globals()[distribution](endpoints)
     for t in range(ticks):
         ep = next(distribution)
-        sim.tick(ep)
+        sim.add_packets(ep)
+        sim.tick()
 
     logger.info(f"Finished simulation")
     logger.info(f"Simulator state:\n{sim}")
