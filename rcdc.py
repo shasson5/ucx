@@ -18,10 +18,24 @@ logger = logbook.Logger('Switch')
 # Improve logging (more fine-grained; support logging each tick)
 
 class Q(object):
-    def __init__(self, n):
+    def __init__(self):
         self._l = []
-        self._n = n;
+        self._curr = 0
 
+    def __next__(self):
+        if self._curr == len(self._l):
+            self._curr = 0
+            return None
+        
+        next = self._l[self._curr]
+        self._curr += 1
+        return next
+         
+class LRU(Q):
+    def __init__(self, n):
+        Q.__init__(self)
+        self._n = n;
+        
     def enqueue(self, n):
         if n in self._l:
             self._l = [n] + [i for i in self._l if i != n]
@@ -50,34 +64,49 @@ class Q(object):
         return r
 
 
+class EP:
+    def __init__(self, id):
+        self._id = id
+        self._hits = 0
+        
+    def increment(self):
+        self._hits += 1
+        
+
+class CountQ(Q):
+    def __init__(self):
+        Q.__init__(self)
+        
+    def _increment_ep(self, id):
+        for ep in self._l:
+            if id == ep._id:
+                break
+        else:
+            ep = EP(id)
+            self._l.append(ep)
+
+        ep.increment()
+
+    def aggregate(self, latest):
+        id = next(latest)
+        while id != None:
+            self._increment_ep(id)
+            id = next(latest)
+                
+                
 class Sim(object):
-    def __init__(self, queue_length, queues_number, endpoints, rc_thresh, rc_avail):
-        self._queues_number = queues_number
-        self._queue_length = queue_length
-        self._endpoints = endpoints
+    def __init__(self, queue_length, window_size, rc_thresh, rc_avail):
+        self._window_size = window_size
         self._rc_thresh = rc_thresh
         self._rc_avail = rc_avail
-        self._queues = []
         self._rc_eps = set()
         self._dc_eps = set()
         self._important_eps = set()
         self._rc_dc_switches = 0
         self._dc_rc_switches = 0
         self._msg_by_ep = {}
-
-    def update_queues(self, new_queue):
-        if self._queues_number == len(self._queues):
-            self._queues.pop(0)
-        self._queues.append(new_queue)
-
-    def _enqueue(self, n):
-        if self._queues:
-            queue = copy.deepcopy(self._queues[-1])
-        else:
-            queue = Q(self._queue_length)
-
-        queue.enqueue(n)
-        self.update_queues(queue)
+        self.latest = LRU(queue_length)
+        self.aggregated = CountQ()
 
     def __repr__(self):
         r = "EP num (msgs sent)\n"
@@ -94,29 +123,33 @@ class Sim(object):
         r += "RC -> DC switches: " + str(self._rc_dc_switches) + "\n"
         r += "\n"
         r += "     + New +\n\n"
-        for (i, q) in enumerate(self._queues[::-1]):
-            r += f"{len(self._queues)-i-1}\n{q}\n\n"
+      #  for (i, q) in enumerate(self._queues[::-1]):
+      #      r += f"{len(self._queues)-i-1}\n{q}\n\n"
         r += "     + Old +\n"
         return r
     
-    def add_packets(self, ep_number):
+    
+    def add(self, ep_number):
         logger.debug(f"completed EP {ep_number}")
         self._msg_by_ep[ep_number] = self._msg_by_ep.get(ep_number, 0) + 1
-        self._enqueue(ep_number)
+        self.latest.enqueue(ep_number)
         
         if ep_number not in self._rc_eps and ep_number not in self._dc_eps:
             logger.debug(f"EP {ep_number} starts in DC")
             self._dc_eps.add(ep_number)
     
+    
     def tick(self):
-        for ep in range(0, self._endpoints):
-            count = 0
-            for q in self._queues:
-                if ep in q.get():
-                    count += 1
-            if count >= self._rc_thresh * self._queues_number:
-                self._important_eps.add(ep)
-
+        self.aggregated.aggregate(self.latest)
+        
+        
+    def update(self):
+        ep = next(self.aggregated)
+        while ep != None:
+            if ep._hits >= self._rc_thresh * self._window_size:
+                self._important_eps.add(ep._id)
+            ep = next(self.aggregated)
+        
         for ep in self._important_eps:
             if ep in self._rc_eps:
                 continue
@@ -143,6 +176,8 @@ class Sim(object):
             self._rc_eps.add(ep)
             self._dc_eps.remove(ep)
 
+        # Reset results
+        self.aggregated = CountQ()
 
 class Distribution(object):
     def __next__(self):
@@ -174,35 +209,38 @@ class RoundRobin(Distribution):
 
 @click.command()
 @click.option('-n', "--queue-length", default=20, help="Length of the queue")
-@click.option('-k', "--queues-number", default=50, help="Number of queues")
+@click.option('-w', "--window_size", default=50, help="Number of seconds to sample EPs")
 @click.option('-e', "--endpoints", default=100, help="Number of endpoints")
 @click.option('-t', "--ticks", default=2000, help="Number of ticks")
 @click.option('-r', "--rc-thresh", default=0.1, help="RC threshold")
 @click.option('-a', "--rc-avail", default=16, help="RC resources available")
 @click.option('-l', "--log-level", default="INFO", help="Log level")
 @click.option('-d', "--distribution", default="Uniform", help="Distribution name (choose from: Uniform, Gaussian, RoundRobin)")
-def main(queue_length, queues_number, endpoints, ticks, rc_thresh, rc_avail, distribution, log_level):
+def main(queue_length, window_size, endpoints, ticks, rc_thresh, rc_avail, distribution, log_level):
     log_level = logbook.lookup_level(log_level)
     logger.level = log_level
 
     logger.info(f"Starting simulation with:\n"
                 f"Queue length: {queue_length}\n"
-                f"Queues number: {queues_number}\n"
+                f"Window size: {window_size}\n"
                 f"Endpoints: {endpoints}\n"
                 f"Ticks: {ticks}\n"
                 f"RC threshold: {rc_thresh}\n"
                 f"RC resources available: {rc_avail}\n"
                 f"Distribution: {distribution}\n"
                 f"Log level: {log_level}")
-    logger.info(f"An endpoint can appear up to {queues_number} times in the queues\n"
-                f"On average it will appear {queues_number/endpoints} times\n"
-                f"To be important it needs to appear at least {rc_thresh*queues_number} times\n")
-    sim = Sim(queue_length, queues_number, endpoints, rc_thresh, rc_avail)
+    logger.info(f"An endpoint can appear up to {window_size} times in the queues\n"
+                f"On average it will appear {window_size/endpoints} times\n"
+                f"To be important it needs to appear at least {rc_thresh*window_size} times\n")
+    sim = Sim(queue_length, window_size, rc_thresh, rc_avail)
     distribution = globals()[distribution](endpoints)
     for t in range(ticks):
         ep = next(distribution)
-        sim.add_packets(ep)
+        sim.add(ep)
         sim.tick()
+        
+        if t % window_size == 0:
+            sim.update()
 
     logger.info(f"Finished simulation")
     logger.info(f"Simulator state:\n{sim}")
