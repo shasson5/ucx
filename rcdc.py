@@ -71,7 +71,9 @@ class EP:
         
     def increment(self):
         self._hits += 1
-        
+    
+    def __repr__(self):
+        return "(%s,%s)" % (self._id, self._hits)
 
 class CountQ(Q):
     def __init__(self):
@@ -141,9 +143,11 @@ class Sim(object):
     
     def tick(self):
         self.aggregated.aggregate(self.latest)
-        
+
         
     def update(self):
+        self._important_eps = set()
+        
         ep = next(self.aggregated)
         while ep != None:
             if ep._hits >= self._rc_thresh * self._window_size:
@@ -209,14 +213,15 @@ class RoundRobin(Distribution):
 
 @click.command()
 @click.option('-n', "--queue-length", default=20, help="Length of the queue")
-@click.option('-w', "--window_size", default=50, help="Number of seconds to sample EPs")
+@click.option('-w', "--window-size", default=500, help="Number of times we sample EPs before recalculate RC list")
 @click.option('-e', "--endpoints", default=100, help="Number of endpoints")
-@click.option('-t', "--ticks", default=2000, help="Number of ticks")
-@click.option('-r', "--rc-thresh", default=0.1, help="RC threshold")
+@click.option('-t', "--ticks", default=10000, help="Number of ticks")
+@click.option('-r', "--rc-thresh", default=0.4, help="RC threshold")
 @click.option('-a', "--rc-avail", default=16, help="RC resources available")
+@click.option('-p', "--packets-per-tick", default=20, help="How many packets are transmitted each tick")
 @click.option('-l', "--log-level", default="INFO", help="Log level")
 @click.option('-d', "--distribution", default="Uniform", help="Distribution name (choose from: Uniform, Gaussian, RoundRobin)")
-def main(queue_length, window_size, endpoints, ticks, rc_thresh, rc_avail, distribution, log_level):
+def main(queue_length, window_size, endpoints, ticks, rc_thresh, rc_avail, packets_per_tick, distribution, log_level):
     log_level = logbook.lookup_level(log_level)
     logger.level = log_level
 
@@ -235,11 +240,14 @@ def main(queue_length, window_size, endpoints, ticks, rc_thresh, rc_avail, distr
     sim = Sim(queue_length, window_size, rc_thresh, rc_avail)
     distribution = globals()[distribution](endpoints)
     for t in range(ticks):
-        ep = next(distribution)
-        sim.add(ep)
+
+        for i in range(0,packets_per_tick):
+            ep = next(distribution)
+            sim.add(ep)
+        
         sim.tick()
         
-        if t % window_size == 0:
+        if (t % window_size) == 0:
             sim.update()
 
     logger.info(f"Finished simulation")
