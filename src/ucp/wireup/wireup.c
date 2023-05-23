@@ -1834,7 +1834,15 @@ double ucp_wireup_iface_lat_distance_v1(const ucp_worker_iface_t *wiface)
         wiface->attr.latency.c;
 }
 
-double ucp_wireup_iface_lat_distance_v2(const ucp_worker_iface_t *wiface)
+static UCS_F_ALWAYS_INLINE double
+ucp_tl_iface_latency(ucp_context_h context, const ucs_linear_func_t *latency,
+                     uct_ep_attributes_t *attr)
+{
+    return ucs_linear_func_apply(*latency, context->config.est_num_eps) + attr->msg_rate;
+}
+
+double ucp_wireup_iface_lat_distance_v2(const ucp_worker_iface_t *wiface,
+                                        uct_ep_attributes_t *attr)
 {
     ucp_context_h context = wiface->worker->context;
     ucs_linear_func_t lat = wiface->attr.latency;
@@ -1842,7 +1850,8 @@ double ucp_wireup_iface_lat_distance_v2(const ucp_worker_iface_t *wiface)
     if (context->config.ext.proto_enable) {
         lat.c += wiface->distance.latency;
     }
-    return ucp_tl_iface_latency(context, &lat);
+
+    return ucp_tl_iface_latency(context, &lat, attr);
 }
 
 double ucp_wireup_iface_bw_distance(const ucp_worker_iface_t *wiface)

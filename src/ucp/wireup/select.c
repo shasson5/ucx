@@ -68,6 +68,7 @@ typedef struct {
 typedef struct {
     unsigned local[UCP_MAX_RESOURCES];
     unsigned remote[UCP_MAX_RESOURCES];
+    double   msg_rate;
 } ucp_wireup_dev_usage_count;
 
 
@@ -590,7 +591,7 @@ static UCS_F_NOINLINE ucs_status_t ucp_wireup_select_transport(
             }
 
             score        = criteria->calc_score(wiface, md_attr, ae,
-                                                criteria->arg);
+                                                criteria->arg, uct_ep->msg_rate);
             priority     = iface_attr->priority + ae->iface_attr.priority;
             is_reachable = 1;
 
@@ -660,7 +661,8 @@ static double ucp_wireup_fp8_pack_unpack_bw(double bandwidth)
 
 static inline double
 ucp_wireup_tl_iface_latency(const ucp_worker_iface_t *wiface,
-                            const ucp_address_iface_attr_t *remote_iface_attr)
+                            const ucp_address_iface_attr_t *remote_iface_attr,
+                            uct_ep_attributes_t *attr)
 {
     ucp_context_h context = wiface->worker->context;
     double local_lat, lat_lossy;
@@ -1263,7 +1265,8 @@ ucp_wireup_rma_bw_score_func(const ucp_worker_iface_t *wiface,
                  ucp_wireup_iface_avail_bandwidth(wiface, remote_addr,
                                                   dev_count->local,
                                                   dev_count->remote)) +
-                ucp_wireup_tl_iface_latency(wiface, &remote_addr->iface_attr) +
+                ucp_wireup_tl_iface_latency(wiface, &remote_addr->iface_attr,
+                                            dev_count->msg_rate) +
                 wiface->attr.overhead +
                 ucs_linear_func_apply(md_attr->reg_cost,
                                       UCP_WIREUP_RMA_BW_TEST_MSG_SIZE));
@@ -2036,7 +2039,7 @@ ucp_wireup_search_lanes(const ucp_wireup_select_params_t *select_params,
         return status;
     }
 
-    status = ucp_wireup_add_amo_lanes(select_params, select_ctx);
+    status = ucp_wireup_add_amo_lanes(select_params, select_ctx, attributes);
     if (status != UCS_OK) {
         return status;
     }
@@ -2306,6 +2309,7 @@ ucp_wireup_select_lanes(ucp_ep_h ep, unsigned ep_init_flags,
                         ucp_tl_bitmap_t tl_bitmap,
                         const ucp_unpacked_address_t *remote_address,
                         unsigned *addr_indices, ucp_ep_config_key_t *key,
+                        attrbites_t attributes,
                         int show_error)
 {
     ucp_worker_h worker                = ep->worker;
@@ -2320,7 +2324,7 @@ ucp_wireup_select_lanes(ucp_ep_h ep, unsigned ep_init_flags,
         ucp_wireup_select_params_init(&select_params, ep, ep_init_flags,
                                       remote_address, scalable_tl_bitmap, 0);
         status = ucp_wireup_search_lanes(&select_params, key->err_mode,
-                                         &select_ctx);
+                                         &select_ctx, attributes);
         if (status == UCS_OK) {
             goto out;
         }

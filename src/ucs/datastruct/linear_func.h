@@ -21,6 +21,7 @@
 typedef struct {
     double         c;  /* constant factor */
     double         m;  /* multiplicative factor */
+    double         k;
 } ucs_linear_func_t;
 
 

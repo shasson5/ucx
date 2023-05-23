@@ -578,12 +578,6 @@ int ucp_is_scalable_transport(ucp_context_h context, size_t max_num_eps)
 }
 
 static UCS_F_ALWAYS_INLINE double
-ucp_tl_iface_latency(ucp_context_h context, const ucs_linear_func_t *latency)
-{
-    return ucs_linear_func_apply(*latency, context->config.est_num_eps);
-}
-
-static UCS_F_ALWAYS_INLINE double
 ucp_tl_iface_bandwidth(ucp_context_h context, const uct_ppn_bandwidth_t *bandwidth)
 {
     return bandwidth->dedicated +
