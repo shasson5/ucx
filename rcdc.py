@@ -4,7 +4,7 @@ import random
 import logbook
 import sys
 import itertools
-
+import heapq
 
 logbook.StreamHandler(sys.stdout).push_application()
 logger = logbook.Logger('Switch')
@@ -75,6 +75,10 @@ class EP:
     def __repr__(self):
         return "(%s,%s)" % (self._id, self._hits)
 
+    def __lt__(self, other):
+        return self._hits < other._hits
+
+
 class CountQ(Q):
     def __init__(self):
         Q.__init__(self)
@@ -95,94 +99,77 @@ class CountQ(Q):
             self._increment_ep(id)
             id = next(latest)
                 
-                
+    def reset(self):
+        self.last = self._l
+        Q.__init__(self)
+                  
 class Sim(object):
     def __init__(self, queue_length, window_size, rc_thresh, rc_avail):
         self._window_size = window_size
         self._rc_thresh = rc_thresh
         self._rc_avail = rc_avail
-        self._rc_eps = set()
-        self._dc_eps = set()
-        self._important_eps = set()
-        self._rc_dc_switches = 0
+        self._rc_eps = []
         self._dc_rc_switches = 0
-        self._msg_by_ep = {}
         self.latest = LRU(queue_length)
         self.aggregated = CountQ()
 
     def __repr__(self):
         r = "EP num (msgs sent)\n"
         r += "RC Endpoints: { "
-        for ep in self._rc_eps:
-            r += str(ep) + " (" + str(self._msg_by_ep.get(ep, 0)) + "), "
+        for ep in sorted(self._rc_eps, reverse=True):
+            r += str(ep) + ", "
         r += " }\n"
         r += "DC Endpoints: { "
-        for ep in self._dc_eps:
-            r += str(ep) + " (" + str(self._msg_by_ep.get(ep, 0)) + "), "
+        for ep in sorted(self.aggregated.last, reverse=True):
+            if ep._id not in [ep._id for ep in self._rc_eps]:
+                r += str(ep) + ", "
         r += " }\n"
         r += "\n"
         r += "DC -> RC switches: " + str(self._dc_rc_switches) + "\n"
-        r += "RC -> DC switches: " + str(self._rc_dc_switches) + "\n"
-        r += "\n"
-        r += "     + New +\n\n"
-      #  for (i, q) in enumerate(self._queues[::-1]):
-      #      r += f"{len(self._queues)-i-1}\n{q}\n\n"
-        r += "     + Old +\n"
         return r
     
     
     def add(self, ep_number):
-        logger.debug(f"completed EP {ep_number}")
-        self._msg_by_ep[ep_number] = self._msg_by_ep.get(ep_number, 0) + 1
+        logger.trace(f"completed EP {ep_number}")
         self.latest.enqueue(ep_number)
         
-        if ep_number not in self._rc_eps and ep_number not in self._dc_eps:
-            logger.debug(f"EP {ep_number} starts in DC")
-            self._dc_eps.add(ep_number)
-    
     
     def tick(self):
         self.aggregated.aggregate(self.latest)
 
-        
-    def update(self):
-        self._important_eps = set()
+    def get_id(self, ep):
+        return ep._id
+    
+    def _get_important_eps(self):
+        important_eps = []
         
         ep = next(self.aggregated)
         while ep != None:
             if ep._hits >= self._rc_thresh * self._window_size:
-                self._important_eps.add(ep._id)
+                important_eps.append(ep)
             ep = next(self.aggregated)
         
-        for ep in self._important_eps:
-            if ep in self._rc_eps:
+        return important_eps
+    
+    def flush(self):
+        important_eps = self._get_important_eps()
+        self._rc_eps = [ep for ep in self.aggregated._l if ep._id in [ep._id for ep in self._rc_eps]]
+        heapq.heapify(self._rc_eps)
+        
+        for ep in important_eps:
+            if ep._id in [ep._id for ep in self._rc_eps]:
                 continue
-            logger.debug(f"EP {ep} is important, trying to switch to RC...")
+            
             if len(self._rc_eps) < self._rc_avail:
-                logger.debug(f"EP {ep} DC -> RC")
-                self._rc_eps.add(ep)
-                self._dc_eps.remove(ep)
+                heapq.heappush(self._rc_eps, ep)
+            elif ep._hits - self._rc_eps[0]._hits > self._window_size * 0.05:
+                logger.debug('replace %s with %s' % (self._rc_eps[0],ep))
                 self._dc_rc_switches += 1
-                continue
-
-            for rc_ep in self._rc_eps:
-                if rc_ep not in self._important_eps:
-                    logger.debug(f"EP {rc_ep} RC -> DC")
-                    self._rc_eps.remove(rc_ep)
-                    self._dc_eps.add(rc_ep)
-                    self._rc_dc_switches += 1
-                    break
-            else:
-                logger.debug(f"Couldn't find a non-important EP to kick out of RC")
-                break
-            logger.debug(f"EP {ep} DC -> RC")
-            self._dc_rc_switches += 1
-            self._rc_eps.add(ep)
-            self._dc_eps.remove(ep)
-
-        # Reset results
-        self.aggregated = CountQ()
-
+                heapq.heappushpop(self._rc_eps, ep)
+        
+        self.aggregated.reset()
+        logger.debug('rc eps: %s' % sorted(self._rc_eps, reverse=True, key=self.get_id))
+        
 class Distribution(object):
     def __next__(self):
         raise NotImplementedError
@@ -247,8 +234,8 @@ def main(queue_length, window_size, endpoints, ticks, rc_thresh, rc_avail, packe
         
         sim.tick()
         
-        if (t % window_size) == 0:
-            sim.update()
+        if t > 0 and (t % window_size) == 0:
+            sim.flush()
 
     logger.info(f"Finished simulation")
     logger.info(f"Simulator state:\n{sim}")
