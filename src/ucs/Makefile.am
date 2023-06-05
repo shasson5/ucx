@@ -156,6 +156,7 @@ libucs_la_SOURCES = \
 	datastruct/array.c \
 	datastruct/callbackq.c \
 	datastruct/frag_list.c \
+	datastruct/lru.c \
 	datastruct/mpmc.c \
 	datastruct/mpool.c \
 	datastruct/mpool_set.c \
