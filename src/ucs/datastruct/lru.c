@@ -19,13 +19,12 @@
 __KHASH_TYPE(lru_hash, uint64_t, ucs_list_link_t);
 
 
-__KHASH_IMPL(lru_hash, kh_inline, uint64_t, ucs_list_link_t, 1,
+__KHASH_IMPL(lru_hash, kh_inline, uint64_t, ucs_list_link_t, 0,
              kh_int64_hash_func, kh_int64_hash_equal);
 
 
 typedef khash_t(lru_hash) ucs_lru_hash_t;
 
-// todo: add doc
 typedef struct {
     ucs_lru_hash_t  hash;
     ucs_list_link_t list;
@@ -86,22 +85,17 @@ static void ucs_lru_push(ucs_lru_h lru, ucs_list_link_t *elem)
 }
 
 //todo: optimize fast path with ucs_likely.
-//todo: change key arg to linked_list pointer to elem.
-//todo: add getter.
 
-ucs_status_t ucs_lru_touch(ucs_lru_h lru, uint64_t key)
+ucs_status_t ucs_lru_touch(ucs_lru_h lru, ucs_list_link_t *elem)
 {
     khint_t iter;
-    ucs_list_link_t *elem;
     int ret;
 
-    iter = kh_put(lru_hash, &lru->hash, key, &ret);
+    iter = kh_put(lru_hash, &lru->hash, (uint64_t)elem, &ret);
     if (ret == UCS_KH_PUT_FAILED) {
         //todo: replace error code.
         return UCS_ERR_NO_RESOURCE;
     }
-
-    elem = &kh_val(&lru->hash, iter);
 
     if (ret == UCS_KH_PUT_KEY_PRESENT) {
         ucs_list_del(elem);
@@ -114,4 +108,16 @@ ucs_status_t ucs_lru_touch(ucs_lru_h lru, uint64_t key)
 
     ucs_lru_push(lru, elem);
     return UCS_OK;
+}
+
+void ucs_lru_get(const ucs_lru_h lru, ucs_list_link_t **elements, size_t *size)
+{
+    ucs_list_link_t *elem;
+
+    for (elem = lru->list.next; elem != &lru->list; elem = elem->next) {
+        *elements = elem;
+        elements ++;
+    }
+
+    *size = lru->size;
 }
