@@ -9,11 +9,9 @@
 #  include "config.h"
 #endif
 
-#include "khash.h"
-#include "list.h"
+
+#include "lru.h"
 #include "ucs/debug/memtrack_int.h"
-#include "ucs/type/status.h"
-#include <stdint.h>
 
 
 __KHASH_TYPE(lru_hash, uint64_t, ucs_list_link_t);
@@ -25,15 +23,12 @@ __KHASH_IMPL(lru_hash, kh_inline, uint64_t, ucs_list_link_t, 0,
 
 typedef khash_t(lru_hash) ucs_lru_hash_t;
 
-typedef struct {
+typedef struct ucs_lru {
     ucs_lru_hash_t  hash;
     ucs_list_link_t list;
     size_t          size;
     size_t          capacity;
 } ucs_lru_t;
-
-
-typedef ucs_lru_t *ucs_lru_h;
 
 
 ucs_lru_h ucs_lru_init(size_t capacity)
