@@ -105,7 +105,7 @@ ucs_status_t ucs_lru_touch(ucs_lru_h lru, ucs_list_link_t *elem)
     return UCS_OK;
 }
 
-void ucs_lru_get(const ucs_lru_h lru, ucs_list_link_t **elements, size_t *size)
+void ucs_lru_get(const ucs_lru_h lru, ucs_list_link_t **elements, size_t *size_p)
 {
     ucs_list_link_t *elem;
 
@@ -114,5 +114,5 @@ void ucs_lru_get(const ucs_lru_h lru, ucs_list_link_t **elements, size_t *size)
         elements ++;
     }
 
-    *size = lru->size;
+    *size_p = lru->size;
 }
