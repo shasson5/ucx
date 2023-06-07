@@ -1,12 +1,15 @@
+/**
+* Copyright (c) NVIDIA CORPORATION & AFFILIATES, 2001-2020. ALL RIGHTS RESERVED.
+* Copyright (C) Los Alamos National Security, LLC. 2019 ALL RIGHTS RESERVED.
+*
+* See file LICENSE for terms.
+*/
 
 #ifndef __LRU_H__
 #define __LRU_H__
 
-#include "khash.h"
-#include "list.h"
 #include "ucs/type/status.h"
-#include <stdint.h>
-
+#include <stddef.h>
 
 typedef struct ucs_lru *ucs_lru_h;
 

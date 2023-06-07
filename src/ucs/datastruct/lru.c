@@ -9,8 +9,12 @@
 #  include "config.h"
 #endif
 
+#include "khash.h"
+#include "list.h"
 #include "lru.h"
 #include "ucs/debug/memtrack_int.h"
+
+#include <stdint.h>
 
 
 typedef struct {

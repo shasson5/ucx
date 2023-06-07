@@ -26,6 +26,7 @@
 #include <ucs/datastruct/mpool.inl>
 #include <ucs/datastruct/ptr_map.inl>
 #include <ucs/datastruct/queue.h>
+#include <ucs/datastruct/rcdc_balancer.h>
 #include <ucs/type/cpu_set.h>
 #include <ucs/type/serialize.h>
 #include <ucs/sys/string.h>
@@ -2519,6 +2520,8 @@ ucs_status_t ucp_worker_create(ucp_context_h context,
     ucp_warn_unused_uct_config(context);
 
     ucp_worker_create_vfs(context, worker);
+
+    ucs_balancer_init(3);
 
     *worker_p = worker;
     return UCS_OK;
