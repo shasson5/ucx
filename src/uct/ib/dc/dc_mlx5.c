@@ -21,6 +21,7 @@
 #include <ucs/arch/bitops.h>
 #include <ucs/arch/cpu.h>
 #include <ucs/async/async.h>
+#include <ucs/datastruct/rcdc_balancer.h>
 #include <ucs/debug/log.h>
 #include <string.h>
 
@@ -266,6 +267,8 @@ uct_dc_mlx5_poll_tx(uct_dc_mlx5_iface_t *iface, int poll_flags)
     uint8_t dci_index;
     struct mlx5_cqe64 *cqe;
     uint16_t hw_ci;
+    uct_dc_mlx5_ep_t *ep;
+
     UCT_DC_MLX5_TXQP_DECL(txqp, txwq);
 
     cqe = uct_ib_mlx5_poll_cq(&iface->super.super.super,
@@ -282,6 +285,7 @@ uct_dc_mlx5_poll_tx(uct_dc_mlx5_iface_t *iface, int poll_flags)
     dci_index = uct_dc_mlx5_iface_dci_find(iface, cqe);
     txqp      = &iface->tx.dcis[dci_index].txqp;
     txwq      = &iface->tx.dcis[dci_index].txwq;
+    ep        = iface->tx.dcis[dci_index].ep;
     hw_ci     = ntohs(cqe->wqe_counter);
 
     ucs_trace_poll("dc iface %p tx_cqe: dci[%d] txqp %p hw_ci %d",
@@ -299,7 +303,7 @@ uct_dc_mlx5_poll_tx(uct_dc_mlx5_iface_t *iface, int poll_flags)
                                        iface->tx.dcis[dci_index].pool_index);
     uct_dc_mlx5_iface_check_tx(iface);
     uct_ib_mlx5_update_db_cq_ci(&iface->super.cq[UCT_IB_DIR_TX]);
-
+    ucs_balancer_add(ep);
     return 1;
 }
 
