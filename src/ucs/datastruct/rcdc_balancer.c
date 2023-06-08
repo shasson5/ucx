@@ -163,12 +163,12 @@ void ucs_balancer_flush(void **arr_p, size_t *size_p)
     kh_clear(aggregator_hash, &ucs_balancer.hash);
 
 //////////////////////////////////////////
-    printf("RC: \n");
-    for (i = 0; i < count; ++ i) {
-        printf("(%p,%lu), ", elem_arr[i].key, elem_arr[i].hit_count);
-    }
-
-    printf("\n");
+//    printf("RC: \n");
+//    for (i = 0; i < count; ++ i) {
+//        printf("(%p,%lu), ", elem_arr[i].key, elem_arr[i].hit_count);
+//    }
+//
+//    printf("\n");
 }
 
 
