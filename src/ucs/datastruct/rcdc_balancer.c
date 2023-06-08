@@ -67,7 +67,6 @@ ucs_status_t ucs_balancer_init(uint32_t interval_sec, unsigned ticks_per_flush)
     kh_init_inplace(aggregator_hash, &ucs_balancer.hash);
 
     //todo: handle resizing on aggregate.
-
     if (kh_resize(aggregator_hash, &ucs_balancer.hash, UCS_BALANCER_MAX_LRU_SIZE * 2) < 0) {
         ucs_lru_destroy(ucs_balancer.lru);
         //todo: change error code.
@@ -110,13 +109,13 @@ void ucs_balancer_aggregate()
     }
 }
 
-void ucs_balancer_add(void *element)
+unsigned ucs_balancer_add(void *element, unsigned id)
 {
     uint64_t now;
     size_t size;
     static void *results[30];
 
-    ucs_lru_touch(ucs_balancer.lru, element);
+    id = ucs_lru_touch(ucs_balancer.lru, id, element);
 
     //todo: use HW clock register
     now = getMicrosecondTimeStamp();
@@ -129,6 +128,8 @@ void ucs_balancer_add(void *element)
             ucs_balancer_flush(results, &size);
         }
     }
+
+    return id;
 }
 
 //todo: change to heap sort.

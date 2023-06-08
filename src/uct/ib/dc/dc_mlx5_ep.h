@@ -77,6 +77,7 @@ struct uct_dc_mlx5_ep {
     uct_rc_fc_t           fc;
     uct_dc_mlx5_base_av_t av;
     uint8_t               dci_channel_index;
+    uint8_t               lru_id;
 };
 
 typedef struct {

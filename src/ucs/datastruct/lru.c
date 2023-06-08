@@ -9,7 +9,6 @@
 #  include "config.h"
 #endif
 
-#include "khash.h"
 #include "list.h"
 #include "lru.h"
 #include "ucs/debug/memtrack_int.h"
@@ -19,25 +18,16 @@
 
 typedef struct {
     void           *key;
+    unsigned        id;
     ucs_list_link_t list;
 } ucs_lru_element_t;
 
 
-__KHASH_TYPE(lru_hash, uint64_t, ucs_lru_element_t);
-
-
-__KHASH_IMPL(lru_hash, kh_inline, uint64_t, ucs_lru_element_t, 1,
-             kh_int64_hash_func, kh_int64_hash_equal);
-
-
-typedef khash_t(lru_hash) ucs_lru_hash_t;
-
-
 typedef struct ucs_lru {
-    ucs_lru_hash_t  hash;
-    ucs_list_link_t list;
-    size_t          size;
-    size_t          capacity;
+    ucs_list_link_t   list;
+    size_t            size;
+    size_t            capacity;
+    ucs_lru_element_t array[0];
 } ucs_lru_t;
 
 
@@ -49,18 +39,8 @@ ucs_lru_h ucs_lru_init(size_t capacity)
         return NULL;
     }
 
-    lru = ucs_calloc(1, sizeof(ucs_lru_t), "ucs_lru");
+    lru = ucs_calloc(1, sizeof(ucs_lru_t) + sizeof(ucs_lru_element_t) * capacity, "ucs_lru");
     if (lru == NULL) {
-        return NULL;
-    }
-
-    /* Init LRU hash table */
-    kh_init_inplace(lru_hash, &lru->hash);
-
-    /* Resize to get the required size. Need to allocate extra space for khash
-     * to be happy. */
-    if (kh_resize(lru_hash, &lru->hash, capacity * 2) < 0) {
-        ucs_free(lru);
         return NULL;
     }
 
@@ -75,7 +55,6 @@ ucs_lru_h ucs_lru_init(size_t capacity)
 
 void ucs_lru_destroy(ucs_lru_h lru)
 {
-    kh_destroy_inplace(lru_hash, &lru->hash);
     ucs_free(lru);
 }
 
@@ -91,33 +70,24 @@ static void ucs_lru_push(ucs_lru_h lru, ucs_lru_element_t *elem)
 
 //todo: optimize fast path with ucs_likely.
 
-ucs_status_t ucs_lru_touch(ucs_lru_h lru, void *key)
+unsigned ucs_lru_touch(ucs_lru_h lru, unsigned id, void *opaque)
 {
-    khint_t iter;
-    int ret;
-    ucs_lru_element_t *elem;
+    ucs_lru_element_t *elem = &lru->array[id];
 
-    iter = kh_put(lru_hash, &lru->hash, (uint64_t)key, &ret);
-    if (ret == UCS_KH_PUT_FAILED) {
-        //todo: replace error code.
-        //todo: maybe should ignore this error because it can never happen.
-        return UCS_ERR_NO_RESOURCE;
-    }
-
-    elem      = &kh_val(&lru->hash, iter);
-    elem->key = key;
-
-    if (ret == UCS_KH_PUT_KEY_PRESENT) {
+    if (elem->key == opaque) {
         ucs_list_del(&elem->list);
     } else if (lru->size == lru->capacity) {
+        id = ucs_container_of(lru->list.prev, ucs_lru_element_t, list)->id;
         ucs_lru_pop(lru);
-        kh_del(lru_hash, &lru->hash, iter);
     } else {
+        id = lru->size;
         lru->size++;
     }
 
+    elem = &lru->array[id];
+    elem->key = opaque;
     ucs_lru_push(lru, elem);
-    return UCS_OK;
+    return id;
 }
 
 void ucs_lru_get(const ucs_lru_h lru, void **elements, size_t *size_p)

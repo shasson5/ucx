@@ -303,7 +303,7 @@ uct_dc_mlx5_poll_tx(uct_dc_mlx5_iface_t *iface, int poll_flags)
                                        iface->tx.dcis[dci_index].pool_index);
     uct_dc_mlx5_iface_check_tx(iface);
     uct_ib_mlx5_update_db_cq_ci(&iface->super.cq[UCT_IB_DIR_TX]);
-    ucs_balancer_add(ep);
+    ep->lru_id = ucs_balancer_add(ep, ep->lru_id);
     return 1;
 }
 

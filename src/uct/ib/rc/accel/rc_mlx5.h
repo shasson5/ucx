@@ -41,6 +41,7 @@ typedef struct uct_rc_mlx5_ep {
     } tx;
     uct_ib_mlx5_qp_t         tm_qp;
     uct_rc_mlx5_mp_context_t mp;
+    uint8_t                  lru_id;
 } uct_rc_mlx5_ep_t;
 
 
