@@ -13,8 +13,11 @@
 #include "khash.h"
 #include "lru.h"
 #include "rcdc_balancer.h"
+
+#include <stdio.h>
 #include <stdint.h>
 #include <sys/time.h>
+
 
 typedef struct {
     void  *key;
@@ -33,7 +36,9 @@ typedef struct {
     ucs_aggregator_hash_t hash;
     ucs_lru_h             lru;
     uint32_t              interval_us;
+    unsigned              ticks_per_flush;
     uint64_t              last_aggregated;
+    uint64_t              ticks;
 } ucs_balancer_t;
 
 static ucs_balancer_t ucs_balancer;
@@ -52,7 +57,7 @@ static uint64_t getMicrosecondTimeStamp()
     return tv.tv_sec * 1000000 + tv.tv_usec;
 }
 
-ucs_status_t ucs_balancer_init(uint32_t interval_sec)
+ucs_status_t ucs_balancer_init(uint32_t interval_sec, unsigned ticks_per_flush)
 {
     ucs_balancer.lru = ucs_lru_init(UCS_BALANCER_MAX_LRU_SIZE);
     if (ucs_balancer.lru == NULL) {
@@ -71,6 +76,8 @@ ucs_status_t ucs_balancer_init(uint32_t interval_sec)
 
     ucs_balancer.last_aggregated = getMicrosecondTimeStamp();
     ucs_balancer.interval_us     = interval_sec * SEC_TO_US;
+    ucs_balancer.ticks_per_flush = ticks_per_flush;
+    ucs_balancer.ticks           = 0;
     return UCS_OK;
 }
 
@@ -95,7 +102,7 @@ void ucs_balancer_aggregate()
         elem      = &kh_val(&ucs_balancer.hash, iter);
         elem->key = results[i];
 
-        if((ret == UCS_KH_PUT_BUCKET_EMPTY) || (ret == UCS_KH_PUT_BUCKET_CLEAR)) {
+        if ((ret == UCS_KH_PUT_BUCKET_EMPTY) || (ret == UCS_KH_PUT_BUCKET_CLEAR)) {
             elem->hit_count = 0;
         }
 
@@ -106,6 +113,9 @@ void ucs_balancer_aggregate()
 void ucs_balancer_add(void *element)
 {
     uint64_t now;
+    size_t size;
+    static void *results[30];
+
     ucs_lru_touch(ucs_balancer.lru, element);
 
     //todo: use HW clock register
@@ -113,6 +123,11 @@ void ucs_balancer_add(void *element)
     if (now >= ucs_balancer.last_aggregated + ucs_balancer.interval_us) {
         ucs_balancer_aggregate();
         ucs_balancer.last_aggregated = now;
+        ucs_balancer.ticks ++;
+
+        if ((ucs_balancer.ticks % ucs_balancer.ticks_per_flush) == 0) {
+            ucs_balancer_flush(results, &size);
+        }
     }
 }
 
@@ -145,8 +160,15 @@ void ucs_balancer_flush(void **arr_p, size_t *size_p)
     }
 
     *size_p = count;
-
     kh_clear(aggregator_hash, &ucs_balancer.hash);
+
+//////////////////////////////////////////
+    printf("RC: \n");
+    for (i = 0; i < count; ++ i) {
+        printf("(%p,%lu), ", elem_arr[i].key, elem_arr[i].hit_count);
+    }
+
+    printf("\n");
 }
 
 

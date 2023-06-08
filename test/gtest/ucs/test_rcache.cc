@@ -7,6 +7,8 @@
 #include <common/test.h>
 extern "C" {
 #include <ucs/arch/atomic.h>
+#include <ucs/datastruct/lru.h>
+#include <ucs/datastruct/rcdc_balancer.h>
 #include <ucs/sys/math.h>
 #include <ucs/stats/stats.h>
 #include <ucs/memory/rcache.h>
@@ -1069,3 +1071,56 @@ UCS_TEST_F(test_rcache_pfn, enum_pfn) {
         munmap(region, len);
     }
 }
+
+UCS_TEST_F(test_rcache_pfn, LRU) {
+    const size_t capacity = 20;
+    int elements[capacity];
+
+    ucs_lru_h lru = ucs_lru_init(capacity);
+    for(size_t i = 0; i < capacity * 5; ++ i) {
+        ucs_lru_touch(lru, &elements[i % capacity]);
+    }
+
+    int *results[capacity];
+    size_t size;
+    ucs_lru_get(lru, (void **)results, &size);
+
+    ASSERT_EQ(size, capacity);
+    for (int i = 0; i < capacity; ++ i) {
+        ASSERT_EQ(results[i], &elements[capacity-1-i]);
+    }
+
+    ucs_lru_destroy(lru);
+}
+
+
+UCS_TEST_F(test_rcache_pfn, balancer) {
+    const size_t interval = 100;
+    const size_t elem_count = 10;
+    int elements[elem_count];
+    int prio[elem_count] = {7, 2, 4, 9, 6, 3, 8, 5, 0, 1};
+
+    ucs_balancer_init(interval, 5);
+
+    for (size_t i = 0; i < elem_count; ++ i) {
+        for (size_t j = i; j < 30; ++ j) {
+            ucs_balancer_add(&elements[prio[i]]);
+            ucs_balancer_aggregate();
+        }
+    }
+
+    void *results[elem_count];
+    size_t size;
+    ucs_balancer_flush(results, &size);
+
+    ASSERT_EQ(size, elem_count);
+    for (int i = 0; i < elem_count; ++ i) {
+        ASSERT_EQ(results[i], &elements[prio[i]]) << "index " << i;
+    }
+
+    ucs_balancer_destroy();
+}
+
+
+
+
