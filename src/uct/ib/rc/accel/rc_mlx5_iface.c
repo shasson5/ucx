@@ -16,6 +16,7 @@
 #include <uct/base/uct_md.h>
 #include <ucs/arch/cpu.h>
 #include <ucs/debug/log.h>
+#include <ucs/datastruct/rcdc_balancer.h>
 #include <ucs/profile/profile.h>
 
 #include "rc_mlx5.inl"
@@ -171,7 +172,7 @@ uct_rc_mlx5_iface_poll_tx(uct_rc_mlx5_iface_common_t *iface, int poll_flags)
     uct_rc_mlx5_iface_update_tx_res(&iface->super, ep, hw_ci);
     uct_rc_iface_arbiter_dispatch(&iface->super);
     uct_ib_mlx5_update_db_cq_ci(&iface->cq[UCT_IB_DIR_TX]);
-
+    ucs_balancer_add(ep);
     return 1;
 }
 

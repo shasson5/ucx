@@ -156,12 +156,14 @@ libucs_la_SOURCES = \
 	datastruct/array.c \
 	datastruct/callbackq.c \
 	datastruct/frag_list.c \
+	datastruct/lru.c \
 	datastruct/mpmc.c \
 	datastruct/mpool.c \
 	datastruct/mpool_set.c \
 	datastruct/pgtable.c \
 	datastruct/ptr_array.c \
 	datastruct/ptr_map.c \
+	datastruct/rcdc_balancer.c \
 	datastruct/strided_alloc.c \
 	datastruct/string_buffer.c \
 	datastruct/string_set.c \
