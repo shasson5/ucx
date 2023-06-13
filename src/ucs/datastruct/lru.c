@@ -91,6 +91,19 @@ static void ucs_lru_push(ucs_lru_h lru, ucs_lru_element_t *elem)
 
 //todo: optimize fast path with ucs_likely.
 
+static void ucs_lru_remove(ucs_lru_h lru)
+{
+    ucs_lru_element_t *elem;
+    khint_t iter;
+
+    elem = ucs_container_of(lru->list.prev, ucs_lru_element_t, list);
+    iter = kh_get(lru_hash, &lru->hash, (uint64_t)elem->key);
+    kh_del(lru_hash, &lru->hash, iter);
+    ucs_lru_pop(lru);
+}
+
+//todo: fix capacity + 1 (capacity can get to more than required).
+
 ucs_status_t ucs_lru_touch(ucs_lru_h lru, void *key)
 {
     khint_t iter;
@@ -110,8 +123,7 @@ ucs_status_t ucs_lru_touch(ucs_lru_h lru, void *key)
     if (ret == UCS_KH_PUT_KEY_PRESENT) {
         ucs_list_del(&elem->list);
     } else if (lru->size == lru->capacity) {
-        ucs_lru_pop(lru);
-        kh_del(lru_hash, &lru->hash, iter);
+        ucs_lru_remove(lru);
     } else {
         lru->size++;
     }
