@@ -43,7 +43,7 @@ typedef struct {
 
 static ucs_balancer_t ucs_balancer;
 
-#define UCS_BALANCER_MAX_LRU_SIZE 20
+#define UCS_BALANCER_MAX_LRU_SIZE 100
 #define UCS_BALANCER_MAX_SAMPLES 100
 #define SEC_TO_US 1e6
 

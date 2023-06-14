@@ -93,13 +93,14 @@ static void ucs_lru_push(ucs_lru_h lru, ucs_lru_element_t *elem)
 
 static void ucs_lru_remove(ucs_lru_h lru)
 {
-    ucs_lru_element_t *elem;
+    ucs_lru_element_t *tail;
     khint_t iter;
 
-    elem = ucs_container_of(lru->list.prev, ucs_lru_element_t, list);
-    iter = kh_get(lru_hash, &lru->hash, (uint64_t)elem->key);
-    kh_del(lru_hash, &lru->hash, iter);
+    tail = ucs_container_of(lru->list.prev, ucs_lru_element_t, list);
+    iter = kh_get(lru_hash, &lru->hash, (uint64_t)tail->key);
+
     ucs_lru_pop(lru);
+    kh_del(lru_hash, &lru->hash, iter);
 }
 
 //todo: fix capacity + 1 (capacity can get to more than required).
