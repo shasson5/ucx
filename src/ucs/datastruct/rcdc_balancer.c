@@ -43,7 +43,7 @@ typedef struct {
 
 static ucs_balancer_t ucs_balancer;
 
-#define UCS_BALANCER_MAX_LRU_SIZE 100
+#define UCS_BALANCER_MAX_LRU_SIZE 30
 #define UCS_BALANCER_MAX_SAMPLES 100
 #define SEC_TO_US 1e6
 
@@ -114,7 +114,7 @@ void ucs_balancer_add(void *element)
 {
     uint64_t now;
     size_t size;
-    static void *results[30];
+    static void *results[UCS_BALANCER_MAX_LRU_SIZE];
 
     ucs_lru_touch(ucs_balancer.lru, element);
 
@@ -132,7 +132,6 @@ void ucs_balancer_add(void *element)
 }
 
 //todo: change to heap sort.
-//todo: add important filtering.
 //todo: add over switch protection.
 
 static int compare_hit_count(const void *elem1, const void *elem2) {
@@ -142,6 +141,7 @@ static int compare_hit_count(const void *elem1, const void *elem2) {
 
 void ucs_balancer_flush(void **arr_p, size_t *size_p)
 {
+    static const double rc_thresh = 0.02;
     int count = 0;
     int i;
     khint_t k;
@@ -150,7 +150,9 @@ void ucs_balancer_flush(void **arr_p, size_t *size_p)
     for (k = kh_begin(&ucs_balancer.hash); k != kh_end(&ucs_balancer.hash); ++k) {
         if (kh_exist(&ucs_balancer.hash, k)) {
             elem_arr[count] = kh_val(&ucs_balancer.hash, k);
-            count ++;
+            if (elem_arr[count].hit_count > rc_thresh * UCS_BALANCER_MAX_SAMPLES) {
+                count ++;
+            }
         }
     }
 
@@ -160,15 +162,17 @@ void ucs_balancer_flush(void **arr_p, size_t *size_p)
     }
 
     *size_p = count;
-    kh_clear(aggregator_hash, &ucs_balancer.hash);
 
 //////////////////////////////////////////
-//    printf("RC: \n");
-//    for (i = 0; i < count; ++ i) {
-//        printf("(%p,%lu), ", elem_arr[i].key, elem_arr[i].hit_count);
-//    }
-//
-//    printf("\n");
+    printf("RC: %u\n", count);
+
+    for (i = 0; i < count; ++ i) {
+        printf("(%p,%lu), ", elem_arr[i].key, elem_arr[i].hit_count);
+    }
+
+    printf("\n");
+
+    kh_clear(aggregator_hash, &ucs_balancer.hash);
 }
 
 
