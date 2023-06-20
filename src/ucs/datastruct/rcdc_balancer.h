@@ -10,7 +10,7 @@
 
 #include <stdint.h>
 
-ucs_status_t ucs_balancer_init(uint32_t interval, unsigned ticks_per_flush);
+ucs_status_t ucs_balancer_init(uint32_t interval, unsigned ticks_per_flush, unsigned rc_size);
 void ucs_balancer_aggregate();
 void ucs_balancer_destroy();
 void ucs_balancer_add(void *element);
