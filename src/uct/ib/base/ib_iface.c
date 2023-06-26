@@ -1727,6 +1727,7 @@ ucs_status_t uct_ib_iface_pre_arm(uct_ib_iface_t *iface)
     return UCS_OK;
 }
 
+
 ucs_status_t uct_ib_iface_arm_cq(uct_ib_iface_t *iface,
                                  uct_ib_dir_t dir,
                                  int solicited_only)

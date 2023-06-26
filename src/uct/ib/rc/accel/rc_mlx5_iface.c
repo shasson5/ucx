@@ -172,7 +172,6 @@ uct_rc_mlx5_iface_poll_tx(uct_rc_mlx5_iface_common_t *iface, int poll_flags)
     uct_rc_mlx5_iface_update_tx_res(&iface->super, ep, hw_ci);
     uct_rc_iface_arbiter_dispatch(&iface->super);
     uct_ib_mlx5_update_db_cq_ci(&iface->cq[UCT_IB_DIR_TX]);
-    ucs_balancer_add(ep);
     return 1;
 }
 

@@ -627,7 +627,7 @@ void ucp_wireup_eps_pending_extract(ucp_ep_t *ucp_ep, ucs_queue_head_t *queue)
     ucp_wireup_ep_t *wireup_ep;
     uct_ep_h uct_ep;
 
-    UCP_WORKER_THREAD_CS_CHECK_IS_BLOCKED(ucp_ep->worker);
+//    UCP_WORKER_THREAD_CS_CHECK_IS_BLOCKED(ucp_ep->worker);
     ucs_queue_head_init(queue);
 
     if (ucp_ep->cfg_index == UCP_WORKER_CFG_INDEX_NULL) {

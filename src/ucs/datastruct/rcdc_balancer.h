@@ -10,11 +10,13 @@
 
 #include <stdint.h>
 
+#define UCS_BALANCER_MAX_LRU_SIZE 5
+
+
 ucs_status_t ucs_balancer_init(uint32_t interval, unsigned ticks_per_flush, unsigned rc_size);
 void ucs_balancer_aggregate();
 void ucs_balancer_destroy();
-void ucs_balancer_add(void *element);
+int  ucs_balancer_add(void *element);
 void ucs_balancer_flush(void **arr_p, size_t *size_p);
-
 
 #endif

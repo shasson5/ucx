@@ -16,6 +16,11 @@
 #include "ucs/sys/math.h"
 #include "ucs/datastruct/list.h"
 
+#include "ucp/core/ucp_ep.h"
+#include "ucp/core/ucp_types.h"
+#include "ucp/wireup/wireup.h"
+#include "ucp/wireup/address.h"
+
 #include <stdio.h>
 #include <stdint.h>
 #include <sys/time.h>
@@ -47,6 +52,7 @@ typedef struct {
     uint64_t              last_aggregated;
     uint64_t              ticks;
     ucs_list_link_t       active_list;
+    int                   flush;
 } ucs_balancer_t;
 
 //todo: handle removing endpoint by the user.
@@ -54,7 +60,6 @@ typedef struct {
 static ucs_balancer_t ucs_balancer;
 
 //todo: remove and use tick_per_flush.
-#define UCS_BALANCER_MAX_LRU_SIZE 5
 #define UCS_BALANCER_MAX_SAMPLES 100
 #define SEC_TO_US 1e6
 
@@ -91,6 +96,7 @@ ucs_status_t ucs_balancer_init(uint32_t interval_sec, unsigned ticks_per_flush, 
     ucs_balancer.interval_us     = interval_sec * SEC_TO_US;
     ucs_balancer.ticks_per_flush = ticks_per_flush;
     ucs_balancer.ticks           = 0;
+    ucs_balancer.flush           = 0;
     ucs_balancer.rc_size         = rc_size;
     ucs_list_head_init(&ucs_balancer.active_list);
     return UCS_OK;
@@ -128,11 +134,9 @@ void ucs_balancer_aggregate()
     }
 }
 
-void ucs_balancer_add(void *element)
+int ucs_balancer_add(void *element)
 {
     uint64_t now;
-    size_t size;
-    static void *results[UCS_BALANCER_MAX_LRU_SIZE];
 
     ucs_lru_touch(ucs_balancer.lru, element);
 
@@ -144,9 +148,11 @@ void ucs_balancer_add(void *element)
         ucs_balancer.ticks ++;
 
         if ((ucs_balancer.ticks % ucs_balancer.ticks_per_flush) == 0) {
-            ucs_balancer_flush(results, &size);
+            ucs_balancer.flush = 1;
         }
     }
+
+    return 0;
 }
 
 //todo: change to heap sort. (and then get min by popping instead of searching).
@@ -196,6 +202,8 @@ static void get_list()
         max_elem->active_marked = 1;
         ucs_list_add_tail(&ucs_balancer.active_list, &max_elem->active_list);
     }
+
+    ucs_balancer.flush = 0;
 }
 
 void ucs_balancer_flush(void **arr_p, size_t *size_p)
@@ -206,6 +214,11 @@ void ucs_balancer_flush(void **arr_p, size_t *size_p)
     khint_t k;
     static ucs_balancer_element_t elem_arr[UCS_BALANCER_MAX_LRU_SIZE * UCS_BALANCER_MAX_SAMPLES];
     ucs_balancer_element_t *elem, *tail, *max_elem;
+
+    if (!ucs_balancer.flush) {
+        *size_p = 0;
+        return;
+    }
 
     get_list();
 
@@ -254,12 +267,12 @@ void ucs_balancer_flush(void **arr_p, size_t *size_p)
     ucs_balancer_reset(elem_arr);
 
 //////////////////////////////////////////
-//    printf("RC:\n");
-//
-//    for (i = 0; i < ucs_balancer.rc_size; ++ i) {
-//        printf("(%p,%lu), ", elem_arr[i].key, elem_arr[i].hit_count);
-//    }
-//
-//    printf("\n");
+    printf("RC:\n");
+
+    for (i = 0; i < ucs_balancer.rc_size; ++ i) {
+        printf("(%p,%lu), ", elem_arr[i].key, elem_arr[i].hit_count);
+    }
+
+    printf("\n");
 }
 

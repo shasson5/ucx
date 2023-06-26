@@ -2521,7 +2521,7 @@ ucs_status_t ucp_worker_create(ucp_context_h context,
 
     ucp_worker_create_vfs(context, worker);
 
-    ucs_balancer_init(1, 5, 20);
+    ucs_balancer_init(1, 20, 20);
 
     *worker_p = worker;
     return UCS_OK;

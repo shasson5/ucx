@@ -11,6 +11,7 @@
 #include "proto_rndv.inl"
 #include "rndv_mtype.inl"
 #include <ucp/proto/proto_debug.h>
+#include <ucs/datastruct/rcdc_balancer.h>
 
 
 #define UCP_PROTO_RNDV_GET_DESC "read from remote"
@@ -91,11 +92,48 @@ static UCS_F_ALWAYS_INLINE ucs_status_t ucp_proto_rndv_get_common_send(
                             iov, 1, remote_address, tl_rkey, comp);
 }
 
+void flush_balancer()
+{
+    size_t size;
+    static void *results[UCS_BALANCER_MAX_LRU_SIZE];
+    unsigned pack_flags;
+    unsigned addr_indices[16];
+    ucp_ep_h ep;
+    ucp_address_t *address;
+    size_t address_length;
+    ucp_unpacked_address_t remote_address;
+
+    ucs_balancer_flush(results, &size);
+    if (size == 0) {
+        return;
+    }
+
+    ep = results[0];
+    ucp_worker_get_address(ep->worker, &address, &address_length);
+
+    if ((ep->worker->context->num_mem_type_detect_mds > 0) ||
+          ep->worker->context->config.ext.proto_enable) {
+          pack_flags = UCP_ADDRESS_PACK_FLAG_SYS_DEVICE;
+      }
+
+    ucp_address_unpack(ep->worker, address,
+                      pack_flags | UCP_ADDRESS_PACK_FLAG_WORKER_UUID |
+                       UCP_ADDRESS_PACK_FLAG_WORKER_NAME |
+                       UCP_ADDRESS_PACK_FLAG_DEVICE_ADDR |
+                       UCP_ADDRESS_PACK_FLAG_IFACE_ADDR | UCP_ADDRESS_PACK_FLAG_EP_ADDR,
+                                &remote_address);
+
+    ucp_wireup_init_lanes(ep, 0, &ucp_tl_bitmap_max, &remote_address, addr_indices);
+}
+
 static void
 ucp_proto_rndv_get_zcopy_fetch_completion(uct_completion_t *uct_comp)
 {
     ucp_request_t *req = ucs_container_of(uct_comp, ucp_request_t,
                                           send.state.uct_comp);
+
+    ucs_balancer_add(req->send.ep);
+    flush_balancer();
 
     ucp_datatype_iter_mem_dereg(&req->send.state.dt_iter,
                                 UCS_BIT(UCP_DATATYPE_CONTIG));
