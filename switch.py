@@ -25,26 +25,32 @@ class Node:
         self.id      = id
         self.rc_list = []
         self.max_rc  = max_rc
-    
+
+    def show(self):
+        print('node: %s' % self.id)
+        print('rc: %s' % self.rc_list)
+        print('dc: %s' % [ep for ep in self.eps if not self._is_rc(ep)])
+
     def log(self, msg):
         print 'Node %u --> %s' % (self.id, msg)
     
     def error(self, msg):
         print 'Error: %s' % msg
+    
+    def _is_rc(self, ep):
+        return ep.dest in [rc.dest for rc in self.rc_list]
         
     def promote(self, max = sys.maxint):
         all_eps = self.eps + self.rc_list
         all_eps.sort(reverse=True, key=EP.get_score)
         
-        candidates = []
-        for ep in all_eps:
-            if ep.dest not in [rc.dest for rc in self.rc_list]:
-                candidates.append(ep)
-        
         # trancate max elements to process
         max = min(max, self.max_rc)
         
-        for candidate in candidates[:max]:
+        for candidate in all_eps[:max]:
+            if self._is_rc(candidate):
+                continue
+            
             self.log('sending promotion request to node %d' % candidate.dest)
             self.pending.append(Message(self.id, candidate.dest, candidate.score, 'Promote'))
         
@@ -143,13 +149,14 @@ class Graph:
         print '\n\nResults:'
         print '=============='
         for node in self.nodes:
-            print('node: %u' % node.id)
-            print('rc: %s' % node.rc_list)
-         
+            node.show()
+
 
 scenarios = []
 pending   = []
 max_rc    = 3
+
+#todo: check convergance and correctness.
 
 # nodes = [Node(0, [EP(dest=2, score=100)], pending, 3),
 #          Node(1, [EP(dest=0, score=200)], pending, 3),
@@ -158,11 +165,20 @@ max_rc    = 3
 #
 # scenarios.append(nodes)
 
-nodes = [Node(0, [EP(dest=4, score=100),EP(dest=1, score=120),EP(dest=3, score=150)], pending, max_rc),
-         Node(1, [EP(dest=0, score=200),EP(dest=2, score=210)], pending, max_rc),
-         Node(2, [EP(dest=1, score=310),EP(dest=0, score=300)], pending, max_rc),
-         Node(3, [], pending, max_rc),
-         Node(4, [], pending, max_rc)]
+# nodes = [Node(0, [EP(dest=4, score=100),EP(dest=1, score=120),EP(dest=3, score=150)], pending, max_rc),
+#          Node(1, [EP(dest=0, score=200),EP(dest=2, score=210)], pending, max_rc),
+#          Node(2, [EP(dest=1, score=310),EP(dest=0, score=300)], pending, max_rc),
+#          Node(3, [], pending, max_rc),
+#          Node(4, [], pending, max_rc)]
+#
+# scenarios.append(nodes)
+
+nodes = [Node(0, [EP(dest=1, score=100),EP(dest=2, score=110),EP(dest=3, score=120),EP(dest=4, score=130),EP(dest=5, score=140)], pending, max_rc),
+         Node(1, [EP(dest=0, score=200),EP(dest=2, score=210),EP(dest=3, score=220),EP(dest=4, score=230),EP(dest=5, score=240)], pending, max_rc),
+         Node(2, [EP(dest=0, score=300),EP(dest=1, score=310),EP(dest=3, score=320),EP(dest=4, score=330),EP(dest=5, score=340)], pending, max_rc),
+         Node(3, [EP(dest=0, score=400),EP(dest=1, score=410),EP(dest=2, score=420),EP(dest=4, score=430),EP(dest=5, score=440)], pending, max_rc),
+         Node(4, [EP(dest=0, score=500),EP(dest=1, score=510),EP(dest=2, score=520),EP(dest=3, score=530),EP(dest=5, score=540)], pending, max_rc),
+         Node(5, [EP(dest=0, score=600),EP(dest=1, score=610),EP(dest=2, score=620),EP(dest=3, score=630),EP(dest=4, score=640)], pending, max_rc)]
 
 scenarios.append(nodes)
 
