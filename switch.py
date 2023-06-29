@@ -20,28 +20,29 @@ class EP:
     
 class Node:
     def __init__(self, id, eps, pending, max_rc):
-        self.eps     = eps
+        self.dc_list = eps
+        self.rc_list = []
         self.pending = pending
         self.id      = id
-        self.rc_list = []
         self.max_rc  = max_rc
 
     def show(self):
         print('node: %s' % self.id)
         print('rc: %s' % self.rc_list)
-        print('dc: %s' % [ep for ep in self.eps if not self._is_rc(ep)])
+        print('dc: %s' % self.dc_list)
 
     def log(self, msg):
         print 'Node %u --> %s' % (self.id, msg)
     
     def error(self, msg):
-        print 'Error: %s' % msg
+        print 'Node %d: Error: %s' % (self.id, msg)
+        exit(1)
     
     def _is_rc(self, ep):
         return ep.dest in [rc.dest for rc in self.rc_list]
         
     def promote(self, max = sys.maxint):
-        all_eps = self.eps + self.rc_list
+        all_eps = self.rc_list + self.dc_list
         all_eps.sort(reverse=True, key=EP.get_score)
         
         # trancate max elements to process
@@ -54,8 +55,8 @@ class Node:
             self.log('sending promotion request to node %d' % candidate.dest)
             self.pending.append(Message(self.id, candidate.dest, candidate.score, 'Promote'))
         
-    def _find_in_rc_list(self, req):
-        for ep in self.rc_list:
+    def _find_ep(self, req, eps):
+        for ep in eps:
             # Need to compare remote src with local dest to match EP.
             if req.src == ep.dest:
                 return ep
@@ -64,13 +65,13 @@ class Node:
         
     def _handle_demote_req(self, req):
         self.log('received demotion request from node %d' % req.src)
-        ep = self._find_in_rc_list(req)
+        ep = self._find_ep(req, self.rc_list)
         
         if ep == None:
-            self.error('demotion requset: already DC -> bug')
-            exit(1)
+            self.error('demotion requset: EP %u not in RC list' % req.src)
         
         self.rc_list.remove(ep)
+        self.dc_list.append(ep)
         self.promote(1)
 
     def _get_min_rc(self):
@@ -82,40 +83,58 @@ class Node:
               
         return min_rc
 
-    def _add_rc(self, ep):
+    def _switch_to_rc(self, ep):
+        self.dc_list.remove(ep)
         self.rc_list.append(ep)
         self.log('sending ack to node %s' % ep.dest)
         self.pending.append(Message(self.id, ep.dest, ep.score, 'Ack'))
 
-    def _remove_least_active_rc(self):
+    def _demote_last(self):
         min_rc = self._get_min_rc()
         self.rc_list.remove(min_rc)
+        self.dc_list.append(min_rc)
         self.log('sending demotion request to node %d' % min_rc.dest)
         self.pending.append(Message(self.id, min_rc.dest, min_rc.score, 'Demote'))
 
     def _handle_promote_req(self, req):
         self.log('received promotion request from node %d' % req.src)
         
-        ep = EP(req.src, req.score)
+        ep = self._find_ep(req, self.dc_list)
+        if ep == None:
+            self.error('promotion requset: EP %u not in DC list' % req.src)
+        
+        # Update score to be the max of tx/rx
+        ep.score = max(ep.score, req.score)
+        
         if self.rc_avail() > 0:
-            self._add_rc(ep)
+            self._switch_to_rc(ep)
             return
         
         min_rc = self._get_min_rc()
         
         if ep.score > min_rc.score:
-            self._add_rc(ep)
-            self._remove_least_active_rc()
+            self._switch_to_rc(ep)
+            self._demote_last()
         else:
             self.log('requset denied: %s' % ep)
-
+    
+    #todo: refactor out common code from handle_ack and handle_promote_req
+    
     def _handle_ack(self, msg):
         self.log('received ack from node %s' % msg.src)
+
+        ep = self._find_ep(msg, self.dc_list)
+        if ep == None:
+            self.error('Ack failed: EP %u not in DC list' % msg.src)
+
+        # Update score to be the max of tx/rx
+        ep.score = max(ep.score, msg.score)
         
-        if self.rc_avail() > 0:
-            self.rc_list.append(EP(msg.src, msg.score))
-        else:
-            self._remove_least_active_rc()
+        self.dc_list.remove(ep)
+        self.rc_list.append(ep)
+        
+        if self.rc_avail() == 0:            
+            self._demote_last()
      
     def handle_req(self, msg):
         if msg.type == 'Promote':
@@ -126,10 +145,9 @@ class Node:
             self._handle_ack(msg)
         else:
             self.error('unknown msg type: %s' % msg.type)
-            exit(1)
             
     def rc_avail(self):
-        return self.max_rc - len(self.rc_list)
+        return max(self.max_rc - len(self.rc_list), 0)
 
                
 class Graph:
