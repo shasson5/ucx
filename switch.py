@@ -41,19 +41,19 @@ class Node:
     def _is_rc(self, ep):
         return ep.dest in [rc.dest for rc in self.rc_list]
         
-    def promote(self, max = sys.maxint):
+    def promote(self):
         all_eps = self.rc_list + self.dc_list
         all_eps.sort(reverse=True, key=EP.get_score)
         
-        # trancate max elements to process
-        max = min(max, self.max_rc)
-        
-        for candidate in all_eps[:max]:
+        for candidate in all_eps[:self.max_rc]:
             if self._is_rc(candidate):
                 continue
-            
-            self.log('sending promotion request to node %d' % candidate.dest)
-            self.pending.append(Message(self.id, candidate.dest, candidate.score, 'Promote'))
+        
+            self._promote(candidate)    
+    
+    def _promote(self, ep):
+        self.log('sending promotion request to node %d' % ep.dest)
+        self.pending.append(Message(self.id, ep.dest, ep.score, 'Promote'))
         
     def _find_ep(self, req, eps):
         for ep in eps:
@@ -68,12 +68,14 @@ class Node:
         ep = self._find_ep(req, self.rc_list)
         
         if ep == None:
-            self.error('demotion requset: EP %u not in RC list' % req.src)
+            self.error('demotion request: EP %u not in RC list' % req.src)
         
         self.rc_list.remove(ep)
         self.dc_list.append(ep)
-        self.promote(1)
-
+        
+        next = max(self.dc_list, key=lambda x: x.score)
+        self._promote(next)
+            
     def _get_min_rc(self):
         min_rc  = self.rc_list[0]
         
@@ -101,7 +103,7 @@ class Node:
         
         ep = self._find_ep(req, self.dc_list)
         if ep == None:
-            self.error('promotion requset: EP %u not in DC list' % req.src)
+            self.error('promotion request: EP %u not in DC list' % req.src)
         
         # Update score to be the max of tx/rx
         ep.score = max(ep.score, req.score)
@@ -116,12 +118,15 @@ class Node:
             self._switch_to_rc(ep)
             self._demote_last()
         else:
-            self.log('requset denied: %s' % ep)
+            self.log('request denied: %s' % ep)
     
     #todo: refactor out common code from handle_ack and handle_promote_req
     
     def _handle_ack(self, msg):
         self.log('received ack from node %s' % msg.src)
+        
+        if self.rc_avail() == 0:            
+            self._demote_last()
 
         ep = self._find_ep(msg, self.dc_list)
         if ep == None:
@@ -133,9 +138,6 @@ class Node:
         self.dc_list.remove(ep)
         self.rc_list.append(ep)
         
-        if self.rc_avail() == 0:            
-            self._demote_last()
-     
     def handle_req(self, msg):
         if msg.type == 'Promote':
             self._handle_promote_req(msg)
@@ -175,21 +177,6 @@ pending   = []
 max_rc    = 3
 
 #todo: check convergance and correctness.
-
-# nodes = [Node(0, [EP(dest=2, score=100)], pending, 3),
-#          Node(1, [EP(dest=0, score=200)], pending, 3),
-#          Node(2, [EP(dest=0, score=300),EP(dest=1, score=300)], pending, 3),
-#         ]
-#
-# scenarios.append(nodes)
-
-# nodes = [Node(0, [EP(dest=4, score=100),EP(dest=1, score=120),EP(dest=3, score=150)], pending, max_rc),
-#          Node(1, [EP(dest=0, score=200),EP(dest=2, score=210)], pending, max_rc),
-#          Node(2, [EP(dest=1, score=310),EP(dest=0, score=300)], pending, max_rc),
-#          Node(3, [], pending, max_rc),
-#          Node(4, [], pending, max_rc)]
-#
-# scenarios.append(nodes)
 
 nodes = [Node(0, [EP(dest=1, score=100),EP(dest=2, score=110),EP(dest=3, score=120),EP(dest=4, score=130),EP(dest=5, score=140)], pending, max_rc),
          Node(1, [EP(dest=0, score=200),EP(dest=2, score=210),EP(dest=3, score=220),EP(dest=4, score=230),EP(dest=5, score=240)], pending, max_rc),
