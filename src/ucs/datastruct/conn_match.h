@@ -173,7 +173,7 @@ void ucs_conn_match_cleanup(ucs_conn_match_ctx_t *conn_match_ctx);
  *         for the given connection.
  */
 ucs_conn_sn_t ucs_conn_match_get_next_sn(ucs_conn_match_ctx_t *conn_match_ctx,
-                                         const void *address);
+                                         const void *address, uint64_t src_uuid);
 
 
 /**
@@ -193,7 +193,8 @@ ucs_conn_sn_t ucs_conn_match_get_next_sn(ucs_conn_match_ctx_t *conn_match_ctx,
 int ucs_conn_match_insert(ucs_conn_match_ctx_t *conn_match_ctx,
                           const void *address, ucs_conn_sn_t conn_sn,
                           ucs_conn_match_elem_t *elem,
-                          ucs_conn_match_queue_type_t conn_queue_type);
+                          ucs_conn_match_queue_type_t conn_queue_type,
+                          uint64_t src_uuid);
 
 
 /**

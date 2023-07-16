@@ -36,7 +36,8 @@ extern const ucs_conn_match_ops_t ucp_ep_match_ops;
 
 
 ucp_ep_match_conn_sn_t ucp_ep_match_get_sn(ucp_worker_h worker,
-                                           uint64_t dest_uuid);
+                                           uint64_t dest_uuid,
+                                           uint64_t src_uuid);
 
 
 int ucp_ep_match_insert(ucp_worker_h worker, ucp_ep_h ep, uint64_t dest_uuid,

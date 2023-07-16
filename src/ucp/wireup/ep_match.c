@@ -52,9 +52,10 @@ const ucs_conn_match_ops_t ucp_ep_match_ops = {
 };
 
 ucp_ep_match_conn_sn_t ucp_ep_match_get_sn(ucp_worker_h worker,
-                                           uint64_t dest_uuid)
+                                           uint64_t dest_uuid,
+                                           uint64_t src_uuid)
 {
-    return ucs_conn_match_get_next_sn(&worker->conn_match_ctx, &dest_uuid);
+    return ucs_conn_match_get_next_sn(&worker->conn_match_ctx, &dest_uuid, src_uuid);
 }
 
 int ucp_ep_match_insert(ucp_worker_h worker, ucp_ep_h ep, uint64_t dest_uuid,
@@ -74,7 +75,7 @@ int ucp_ep_match_insert(ucp_worker_h worker, ucp_ep_h ep, uint64_t dest_uuid,
 
     if (ucs_conn_match_insert(&worker->conn_match_ctx, &dest_uuid,
                               (ucs_conn_sn_t)conn_sn,
-                              &ep->ext->ep_match.conn_match, conn_queue_type)) {
+                              &ep->ext->ep_match.conn_match, conn_queue_type, worker->uuid)) {
         ucp_ep_update_flags(ep, UCP_EP_FLAG_ON_MATCH_CTX, 0);
         return 1;
     }

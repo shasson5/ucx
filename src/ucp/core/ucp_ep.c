@@ -1068,7 +1068,9 @@ ucp_ep_create_api_to_worker_addr(ucp_worker_h worker,
      * dst_ep != 0. So, ucp_wireup_request() will not create an unexpected ep
      * in ep_match.
      */
-    conn_sn = ucp_ep_match_get_sn(worker, remote_address.uuid);
+
+    conn_sn = ucp_ep_match_get_sn(worker, remote_address.uuid, worker->uuid);
+
     ep      = ucp_ep_match_retrieve(worker, remote_address.uuid,
                                     conn_sn ^
                                     (remote_address.uuid == worker->uuid),
@@ -1907,6 +1909,10 @@ int ucp_ep_config_is_equal(const ucp_ep_config_key_t *key1,
         if (key1->dst_md_cmpts[i] != key2->dst_md_cmpts[i]) {
             return 0;
         }
+    }
+
+    if (key1->dst_rsc_idx[0] != key2->dst_rsc_idx[0]) {
+        return 0;
     }
 
     return 1;

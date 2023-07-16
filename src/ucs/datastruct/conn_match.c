@@ -117,13 +117,13 @@ ucs_conn_match_peer_alloc(ucs_conn_match_ctx_t *conn_match_ctx,
 
     peer->address_length = conn_match_ctx->address_length;
     memcpy(&peer->address, address, peer->address_length);
-
     return peer;
 }
 
 static ucs_conn_match_peer_t*
 ucs_conn_match_get_conn(ucs_conn_match_ctx_t *conn_match_ctx,
-                        const void *address)
+                        const void *address,
+                        uint64_t src_uuid)
 {
     char address_str[UCS_CONN_MATCH_ADDRESS_STR_MAX];
     ucs_conn_match_peer_t *peer;
@@ -149,15 +149,16 @@ ucs_conn_match_get_conn(ucs_conn_match_ctx_t *conn_match_ctx,
     /* initialize match list on first use */
     ucs_hlist_head_init(&peer->conn_q[UCS_CONN_MATCH_QUEUE_EXP]);
     ucs_hlist_head_init(&peer->conn_q[UCS_CONN_MATCH_QUEUE_UNEXP]);
-
+    peer->next_conn_sn = src_uuid;
     return peer;
 }
 
 ucs_conn_sn_t ucs_conn_match_get_next_sn(ucs_conn_match_ctx_t *conn_match_ctx,
-                                         const void *address)
+                                         const void *address,
+                                         uint64_t src_uuid)
 {
     ucs_conn_match_peer_t *peer = ucs_conn_match_get_conn(conn_match_ctx,
-                                                          address);
+                                                          address, src_uuid);
     ucs_conn_sn_t conn_sn       =
             (peer->next_conn_sn != conn_match_ctx->max_conn_sn) ?
             peer->next_conn_sn++ : peer->next_conn_sn;
@@ -176,10 +177,11 @@ ucs_conn_sn_t ucs_conn_match_get_next_sn(ucs_conn_match_ctx_t *conn_match_ctx,
 int ucs_conn_match_insert(ucs_conn_match_ctx_t *conn_match_ctx,
                           const void *address, ucs_conn_sn_t conn_sn,
                           ucs_conn_match_elem_t *conn_match,
-                          ucs_conn_match_queue_type_t conn_queue_type)
+                          ucs_conn_match_queue_type_t conn_queue_type,
+                          uint64_t src_uuid)
 {
     ucs_conn_match_peer_t *peer = ucs_conn_match_get_conn(conn_match_ctx,
-                                                          address);
+                                                          address, src_uuid);
     ucs_hlist_head_t *head      = &peer->conn_q[conn_queue_type];
     char UCS_V_UNUSED address_str[UCS_CONN_MATCH_ADDRESS_STR_MAX];
 

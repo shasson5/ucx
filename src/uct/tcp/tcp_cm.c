@@ -316,7 +316,7 @@ void uct_tcp_cm_ep_set_conn_sn(uct_tcp_ep_t *ep)
     ucs_assert(!(ep->flags & UCT_TCP_EP_FLAG_CONNECT_TO_EP));
 
     ep->cm_id.conn_sn = ucs_conn_match_get_next_sn(&iface->conn_match_ctx,
-                                                   &ep->peer_addr);
+                                                   &ep->peer_addr, 0);
 }
 
 uct_tcp_ep_t *uct_tcp_cm_get_ep(uct_tcp_iface_t *iface,
@@ -393,7 +393,7 @@ void uct_tcp_cm_insert_ep(uct_tcp_iface_t *iface, uct_tcp_ep_t *ep)
                                 ep->cm_id.conn_sn, &ep->elem,
                                 (ctx_caps & UCT_TCP_EP_FLAG_CTX_TYPE_TX) ?
                                 UCS_CONN_MATCH_QUEUE_EXP :
-                                UCS_CONN_MATCH_QUEUE_UNEXP);
+                                UCS_CONN_MATCH_QUEUE_UNEXP, 0);
     ucs_assert_always(ret == 1);
 
     ep->flags |= UCT_TCP_EP_FLAG_ON_MATCH_CTX;

@@ -105,7 +105,7 @@ protected:
     void insert(const void *dest_address, ucs_conn_sn_t conn_sn,
                 ucs_conn_match_queue_type_t queue_type, conn_elem_t &elem) {
         ucs_conn_match_insert(&m_conn_match_ctx, dest_address, conn_sn,
-                              &elem.elem, queue_type);
+                              &elem.elem, queue_type, 0);
         elem.queue_type = queue_type;
         elem.conn_sn    = conn_sn;
         m_added_elems++;
@@ -156,7 +156,7 @@ protected:
 
     ucs_conn_sn_t get_next_sn(const void *dest_address) {
         return ucs_conn_match_get_next_sn(&m_conn_match_ctx,
-                                          dest_address);
+                                          dest_address, 0);
     }
 
 private:

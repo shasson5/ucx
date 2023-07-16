@@ -82,7 +82,7 @@ uct_ud_iface_cep_get_conn_sn(uct_ud_iface_t *iface,
     } 
 
     *conn_sn_p = ucs_conn_match_get_next_sn(&iface->conn_match_ctx,
-                                            peer_address);
+                                            peer_address, 0);
     return UCS_OK;
 }
 
@@ -108,7 +108,7 @@ uct_ud_iface_cep_insert_ep(uct_ud_iface_t *iface,
 
     ucs_assert(!(ep->flags & UCT_UD_EP_FLAG_ON_CEP));
     ret = ucs_conn_match_insert(&iface->conn_match_ctx, peer_address,
-                                conn_sn, &ep->conn_match, queue_type);
+                                conn_sn, &ep->conn_match, queue_type, 0);
     ucs_assert_always(ret == 1);
 
     ep->flags |= UCT_UD_EP_FLAG_ON_CEP;
