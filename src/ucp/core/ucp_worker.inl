@@ -239,6 +239,7 @@ ucp_worker_default_address_pack_flags(ucp_worker_h worker)
            UCP_ADDRESS_PACK_FLAG_WORKER_UUID |
            UCP_ADDRESS_PACK_FLAG_WORKER_NAME |
            UCP_ADDRESS_PACK_FLAG_DEVICE_ADDR |
+           UCP_ADDRESS_PACK_FLAG_TL_RSC_IDX |
            UCP_ADDRESS_PACK_FLAG_IFACE_ADDR | UCP_ADDRESS_PACK_FLAG_EP_ADDR;
 }
 

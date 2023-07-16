@@ -267,12 +267,12 @@ void ucs_balancer_flush(void **arr_p, size_t *size_p)
     ucs_balancer_reset(elem_arr);
 
 //////////////////////////////////////////
-    printf("RC:\n");
-
-    for (i = 0; i < ucs_balancer.rc_size; ++ i) {
-        printf("(%p,%lu), ", elem_arr[i].key, elem_arr[i].hit_count);
-    }
-
-    printf("\n");
+//    printf("RC:\n");
+//
+//    for (i = 0; i < ucs_balancer.rc_size; ++ i) {
+//        printf("(%p,%lu), ", elem_arr[i].key, elem_arr[i].hit_count);
+//    }
+//
+//    printf("\n");
 }
 

@@ -261,6 +261,8 @@ struct ucp_ep_config_key {
 
     /* Additional flags */
     unsigned                 flags;
+
+    ucp_rsc_index_t          dst_rsc_idx[UCP_MAX_LANES];
 };
 
 
@@ -548,7 +550,7 @@ typedef struct ucp_ep {
     /* Transports for every lane */
     uct_ep_h                      uct_eps[UCP_MAX_FAST_PATH_LANES];
     ucp_ep_ext_t                  *ext;                   /* Endpoint extension */
-
+    int                           important;
 #if ENABLE_DEBUG_DATA
     char                          peer_name[UCP_WORKER_ADDRESS_NAME_MAX];
     /* Endpoint name for tracing and analysis */

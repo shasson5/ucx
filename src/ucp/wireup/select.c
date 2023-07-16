@@ -486,6 +486,13 @@ static UCS_F_NOINLINE ucs_status_t ucp_wireup_select_transport(
             continue;
         }
 
+        if (ep->important) {
+            if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_IMPORTANT) &&
+                    !(criteria->tl_rsc_flags & UCP_TL_RSC_FLAG_AUX)) {
+                continue;
+            }
+        }
+
         has_cm = ucp_ep_init_flags_has_cm(select_params->ep_init_flags);
         if (select_params->ep_init_flags & UCP_EP_INIT_CONNECT_TO_IFACE_ONLY) {
             local_iface_flags.mandatory |= UCT_IFACE_FLAG_CONNECT_TO_IFACE;
@@ -2250,9 +2257,7 @@ ucp_wireup_construct_lanes(const ucp_wireup_select_params_t *select_params,
                 ucp_wireup_compare_lane_amo_score, select_ctx->lane_descs);
 
     /* Select lane for wireup messages, if: */
-    if (/* - no CM support was requested */
-        !ucp_ep_init_flags_has_cm(select_params->ep_init_flags) ||
-        /* - CM support was requested, but not locally connected yet */
+    if ( /* - CM support was requested, but not locally connected yet */
         !(ep->flags & UCP_EP_FLAG_LOCAL_CONNECTED)) {
         key->wireup_msg_lane =
         ucp_wireup_select_wireup_msg_lane(worker,

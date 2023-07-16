@@ -173,7 +173,7 @@ static UCS_F_ALWAYS_INLINE void ucp_ep_update_flags(
     ucp_ep_flags_t ep_flags_add    = (ucp_ep_flags_t)flags_add;
     ucp_ep_flags_t ep_flags_remove = (ucp_ep_flags_t)flags_remove;
 
-    UCP_WORKER_THREAD_CS_CHECK_IS_BLOCKED(ep->worker);
+//    UCP_WORKER_THREAD_CS_CHECK_IS_BLOCKED(ep->worker);
     ucs_assert((ep_flags_add & ep_flags_remove) == 0);
 
     ep->flags = (ep->flags | ep_flags_add) & ~ep_flags_remove;

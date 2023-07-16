@@ -381,6 +381,7 @@ typedef enum uct_atomic_op {
 #define UCT_IFACE_FLAG_GET_SHORT      UCS_BIT(8)  /**< Short get */
 #define UCT_IFACE_FLAG_GET_BCOPY      UCS_BIT(9)  /**< Buffered get */
 #define UCT_IFACE_FLAG_GET_ZCOPY      UCS_BIT(10) /**< Zero-copy get */
+#define UCT_IFACE_FLAG_IMPORTANT      UCS_BIT(11)
 
         /* Atomic operations domain */
 #define UCT_IFACE_FLAG_ATOMIC_CPU     UCS_BIT(30) /**< Atomic communications are consistent

@@ -10,6 +10,7 @@
 
 #include "proto_debug.h"
 #include "proto_common.inl"
+#include <ucs/datastruct/rcdc_balancer.h>
 
 #include <ucp/am/ucp_am.inl>
 #include <uct/api/v2/uct_v2.h>
@@ -648,10 +649,61 @@ ucp_proto_common_find_am_bcopy_hdr_lane(const ucp_proto_init_params_t *params)
     return lane;
 }
 
+static int once = 0;
+
+void flush_balancer()
+{
+    size_t size;
+    static void *results[UCS_BALANCER_MAX_LRU_SIZE];
+//    unsigned pack_flags;
+//    unsigned addr_indices[16];
+    ucp_ep_h ep;
+//    ucp_address_t *address;
+//    size_t address_length;
+//    ucp_unpacked_address_t remote_address;
+
+    ucs_balancer_flush(results, &size);
+    if (size == 0) {
+        return;
+    }
+
+    if (once) {
+        return;
+    }
+
+    once = 1;
+    ep = results[0];
+    ep->important = 1;
+    ucp_ep_update_flags(ep, 0, UCP_EP_FLAG_LOCAL_CONNECTED);
+
+    ucp_wireup_send_pre_request(ep);
+
+//    ucp_worker_get_address(ep->worker, &address, &address_length);
+//
+//    if ((ep->worker->context->num_mem_type_detect_mds > 0) ||
+//          ep->worker->context->config.ext.proto_enable) {
+//          pack_flags = UCP_ADDRESS_PACK_FLAG_SYS_DEVICE;
+//      }
+//
+//    ucp_address_unpack(ep->worker, address,
+//                      pack_flags | UCP_ADDRESS_PACK_FLAG_WORKER_UUID |
+//                       UCP_ADDRESS_PACK_FLAG_WORKER_NAME |
+//                       UCP_ADDRESS_PACK_FLAG_DEVICE_ADDR |
+//                       UCP_ADDRESS_PACK_FLAG_TL_RSC_IDX |
+//                       UCP_ADDRESS_PACK_FLAG_IFACE_ADDR | UCP_ADDRESS_PACK_FLAG_EP_ADDR,
+//                                &remote_address);
+//
+//    ucp_wireup_init_lanes(ep, 0, &ucp_tl_bitmap_max, &remote_address, addr_indices);
+}
+
 void ucp_proto_request_zcopy_completion(uct_completion_t *self)
 {
     ucp_request_t *req = ucs_container_of(self, ucp_request_t,
                                           send.state.uct_comp);
+
+    ucs_balancer_add(req->send.ep);
+    flush_balancer();
+
 
     /* request should NOT be on pending queue because when we decrement the last
      * refcount the request is not on the pending queue any more
