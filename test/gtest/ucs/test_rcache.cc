@@ -1030,6 +1030,17 @@ protected:
         data->pfn.insert(pfn);
         data->page.insert(page_num);
     }
+
+    bool has_item(int *elements, int *prio, int result, int size)
+    {
+        for (int i = 0; i < size; ++ i) {
+            if (result == elements[prio[i]]) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 };
 
 UCS_TEST_F(test_rcache_pfn, enum_pfn) {
@@ -1096,11 +1107,11 @@ UCS_TEST_F(test_rcache_pfn, LRU) {
 
 UCS_TEST_F(test_rcache_pfn, balancer) {
     const size_t interval = 100;
-    const size_t elem_count = 10;
-    int elements[elem_count];
+    const size_t elem_count = 10, max_lru = 5;
+    int elements[elem_count] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
     int prio[elem_count] = {7, 2, 4, 9, 6, 3, 8, 5, 0, 1};
 
-    ucs_balancer_init(interval, 5, elem_count);
+    ucs_balancer_init(interval, 5, max_lru);
 
     for (size_t i = 0; i < elem_count; ++ i) {
         for (size_t j = i; j < 30; ++ j) {
@@ -1109,13 +1120,15 @@ UCS_TEST_F(test_rcache_pfn, balancer) {
         }
     }
 
+    ucs_balancer_flush();
+
     void *results[elem_count];
     size_t size;
-    ucs_balancer_flush(results, &size);
+    ucs_balancer_get(results, &size);
 
-    ASSERT_EQ(size, elem_count);
-    for (int i = 0; i < elem_count; ++ i) {
-        ASSERT_EQ(results[i], &elements[prio[i]]) << "index " << i;
+    ASSERT_EQ(size, max_lru);
+    for (int i = 0; i < max_lru; ++ i) {
+        ASSERT_TRUE(has_item(elements, prio, *(int *)(results[i]), max_lru)) << "index " << i;
     }
 
     ucs_balancer_destroy();
@@ -1139,9 +1152,11 @@ UCS_TEST_F(test_rcache_pfn, balancer_stability) {
         ucs_balancer_aggregate();
     }
 
+    ucs_balancer_flush();
+
     void *results[elem_count];
     size_t size;
-    ucs_balancer_flush(results, &size);
+    ucs_balancer_get(results, &size);
 
 //    ASSERT_EQ(size, elem_count);
 //    for (int i = 0; i < elem_count; ++ i) {
@@ -1157,7 +1172,9 @@ UCS_TEST_F(test_rcache_pfn, balancer_stability) {
         ucs_balancer_aggregate();
     }
 
-    ucs_balancer_flush(results, &size);
+    ucs_balancer_flush();
+    ucs_balancer_get(results, &size);
+
     ucs_balancer_destroy();
 }
 
@@ -1180,7 +1197,8 @@ UCS_TEST_F(test_rcache_pfn, balancer_diff) {
 
     void *results[elem_count];
     size_t size;
-    ucs_balancer_flush(results, &size);
+    ucs_balancer_flush();
+    ucs_balancer_get(results, &size);
 
     ASSERT_EQ(size, lru_size);
     for (int i = 0; i < lru_size; ++ i) {
@@ -1204,7 +1222,8 @@ UCS_TEST_F(test_rcache_pfn, balancer_diff) {
         elements[lru_size + i] = 6;
     }
 
-    ucs_balancer_flush(results, &size);
+    ucs_balancer_flush();
+    ucs_balancer_get(results, &size);
 
     ASSERT_EQ(size, lru_size);
     for (int i = 0; i < lru_size; ++ i) {

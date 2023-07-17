@@ -17,6 +17,7 @@ ucs_status_t ucs_balancer_init(uint32_t interval, unsigned ticks_per_flush, unsi
 void ucs_balancer_aggregate();
 void ucs_balancer_destroy();
 int  ucs_balancer_add(void *element);
-void ucs_balancer_flush(void **arr_p, size_t *size_p);
+void ucs_balancer_flush();
+void ucs_balancer_get(void **arr_p, size_t *size_p);
 
 #endif
