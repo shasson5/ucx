@@ -599,14 +599,12 @@ ucp_ep_config_err_mode_check_mismatch(ucp_ep_h ep,
 static ucs_status_t
 ucp_ep_adjust_params(ucp_ep_h ep, const ucp_ep_params_t *params)
 {
-    ucs_status_t status;
-
-    if (params->field_mask & UCP_EP_PARAM_FIELD_ERR_HANDLING_MODE) {
-        status = ucp_ep_config_err_mode_check_mismatch(ep, params->err_mode);
-        if (status != UCS_OK) {
-            return status;
-        }
-    }
+//    if (params->field_mask & UCP_EP_PARAM_FIELD_ERR_HANDLING_MODE) {
+//        status = ucp_ep_config_err_mode_check_mismatch(ep, params->err_mode);
+//        if (status != UCS_OK) {
+//            return status;
+//        }
+//    }
 
     if (params->field_mask & UCP_EP_PARAM_FIELD_ERR_HANDLER) {
         ep->ext->user_data = params->err_handler.arg;

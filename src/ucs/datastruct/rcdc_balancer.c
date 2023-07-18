@@ -13,13 +13,12 @@
 #include "khash.h"
 #include "lru.h"
 #include "rcdc_balancer.h"
-#include "ucs/sys/math.h"
-#include "ucs/datastruct/list.h"
-
 #include "ucp/core/ucp_ep.h"
 #include "ucp/core/ucp_types.h"
-#include "ucp/wireup/wireup.h"
 #include "ucp/wireup/address.h"
+#include "ucp/wireup/wireup.h"
+#include "ucs/datastruct/list.h"
+#include "ucs/sys/math.h"
 
 #include <stdio.h>
 #include <stdint.h>
@@ -52,6 +51,7 @@ typedef struct {
     uint64_t              last_aggregated;
     uint64_t              ticks;
     ucs_list_link_t       active_list;
+    int                   flushed;
 } ucs_balancer_t;
 
 //todo: handle removing endpoint by the user.
@@ -96,6 +96,7 @@ ucs_status_t ucs_balancer_init(uint32_t interval_sec, unsigned ticks_per_flush, 
     ucs_balancer.ticks_per_flush = ticks_per_flush;
     ucs_balancer.ticks           = 0;
     ucs_balancer.rc_size         = rc_size;
+    ucs_balancer.flushed         = 0;
     ucs_list_head_init(&ucs_balancer.active_list);
     return UCS_OK;
 }
@@ -273,16 +274,18 @@ static void ucs_balancer_flush_tx()
     }
 }
 
-void ucs_balancer_get(void **arr_p, size_t *size_p)
+void ucs_balancer_get(ucs_balancer_state_t *state)
 {
     ucs_balancer_element_t *item;
+    void **elem;
 
     ucs_list_for_each(item, &ucs_balancer.active_list, list) {
-        *arr_p = item->key;
-        arr_p ++;
+        elem = ucs_array_append_fixed(rc_ptr, &state->array);
+        *elem = item->key;
     }
 
-    *size_p = ucs_list_length(&ucs_balancer.active_list);
+    state->flushed       = ucs_balancer.flushed;
+    ucs_balancer.flushed = 0;
 }
 
 //////////////////////////////////////////
@@ -334,5 +337,7 @@ void ucs_balancer_flush()
         max_elem->marked = 1;
         count ++;
     }
+
+    ucs_balancer.flushed = 1;
 }
 

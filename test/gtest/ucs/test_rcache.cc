@@ -1122,13 +1122,12 @@ UCS_TEST_F(test_rcache_pfn, balancer) {
 
     ucs_balancer_flush();
 
-    void *results[elem_count];
-    size_t size;
-    ucs_balancer_get(results, &size);
+    ucs_balancer_state_t state;
+    ucs_balancer_get(&state);
 
-    ASSERT_EQ(size, max_lru);
+    ASSERT_EQ(ucs_array_length(&state.array), max_lru);
     for (int i = 0; i < max_lru; ++ i) {
-        ASSERT_TRUE(has_item(elements, prio, *(int *)(results[i]), max_lru)) << "index " << i;
+        ASSERT_TRUE(has_item(elements, prio, *(int *)(ucs_array_elem(&state.array, i)), max_lru)) << "index " << i;
     }
 
     ucs_balancer_destroy();
@@ -1154,9 +1153,8 @@ UCS_TEST_F(test_rcache_pfn, balancer_stability) {
 
     ucs_balancer_flush();
 
-    void *results[elem_count];
-    size_t size;
-    ucs_balancer_get(results, &size);
+    ucs_balancer_state_t state;
+    ucs_balancer_get(&state);
 
 //    ASSERT_EQ(size, elem_count);
 //    for (int i = 0; i < elem_count; ++ i) {
@@ -1173,7 +1171,7 @@ UCS_TEST_F(test_rcache_pfn, balancer_stability) {
     }
 
     ucs_balancer_flush();
-    ucs_balancer_get(results, &size);
+    ucs_balancer_get(&state);
 
     ucs_balancer_destroy();
 }
@@ -1195,14 +1193,14 @@ UCS_TEST_F(test_rcache_pfn, balancer_diff) {
         elements[i] = 5;
     }
 
-    void *results[elem_count];
-    size_t size;
     ucs_balancer_flush();
-    ucs_balancer_get(results, &size);
 
-    ASSERT_EQ(size, lru_size);
+    ucs_balancer_state_t state;
+    ucs_balancer_get(&state);
+
+    ASSERT_EQ(ucs_array_length(&state.array), lru_size);
     for (int i = 0; i < lru_size; ++ i) {
-        ASSERT_EQ(*((int*)results[i]), elements[i]) << "index " << i;
+        ASSERT_EQ(*((int*)ucs_array_elem(&state.array, i)), elements[i]) << "index " << i;
     }
 
     for (size_t i = 0; i < lru_size; ++ i) {
@@ -1223,11 +1221,11 @@ UCS_TEST_F(test_rcache_pfn, balancer_diff) {
     }
 
     ucs_balancer_flush();
-    ucs_balancer_get(results, &size);
+    ucs_balancer_get(&state);
 
-    ASSERT_EQ(size, lru_size);
+    ASSERT_EQ(ucs_array_length(&state.array), lru_size);
     for (int i = 0; i < lru_size; ++ i) {
-        ASSERT_EQ(*((int*)results[i]), elements[i]) << "index " << i;
+        ASSERT_EQ(*((int*)ucs_array_elem(&state.array, i)), elements[i]) << "index " << i;
     }
 
     ucs_balancer_destroy();

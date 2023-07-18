@@ -649,31 +649,38 @@ ucp_proto_common_find_am_bcopy_hdr_lane(const ucp_proto_init_params_t *params)
     return lane;
 }
 
-static int once = 0;
+static int counter = 0;
+//todo: promote and demote multiple
 
 void flush_balancer()
 {
-    size_t size;
-    static void *results[UCS_BALANCER_MAX_LRU_SIZE];
+    ucs_balancer_state_t state;
     ucp_ep_h ep;
 
-    ucs_balancer_get(results, &size);
-    if (size == 0) {
+    ucs_balancer_get(&state);
+
+    if (!state.flushed) {
         return;
     }
 
-    //todo: promote and demote multiple
+    printf("flush\n");
 
-    if (once) {
+    if (counter >= 2) {
         return;
     }
 
-    once = 1;
-    ep = results[0];
+    counter ++;
+    ep = ucs_array_elem(&state.array, 0);
 
     ucp_ep_update_flags(ep, 0, UCP_EP_FLAG_LOCAL_CONNECTED);
-    ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_PROMOTION_REQUEST,
-                                     &ucp_tl_bitmap_max, NULL);
+
+    if (counter == 0) {
+        ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_PROMOTION_REQUEST,
+                                         &ucp_tl_bitmap_max, NULL);
+    } else {
+        ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_DEMOTION_REQUEST,
+                                         &ucp_tl_bitmap_max, NULL);
+    }
 }
 
 void ucp_proto_request_zcopy_completion(uct_completion_t *self)
