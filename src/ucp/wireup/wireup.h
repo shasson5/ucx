@@ -46,6 +46,9 @@ enum {
     UCP_WIREUP_MSG_ACK,
     UCP_WIREUP_MSG_EP_CHECK,
     UCP_WIREUP_MSG_EP_REMOVED,
+    UCP_WIREUP_MSG_PROMOTION_REQUEST,
+    UCP_WIREUP_MSG_DEMOTION_REQUEST,
+    UCP_WIREUP_MSG_NEGOTIATION_ACK,
     UCP_WIREUP_MSG_LAST
 };
 
@@ -117,8 +120,7 @@ typedef struct {
  */
 typedef struct ucp_wireup_msg {
     uint8_t                type; /* Message type */
-    uint8_t                err_mode; /* Peer error handling mode defined in
-                                        @ucp_err_handling_mode_t */
+    uint8_t                score; /* Score of destination (RCDC Negotiation) */
     ucp_ep_match_conn_sn_t conn_sn; /* Connection sequence number */
     uint64_t               src_ep_id; /* Endpoint ID of source */
     uint64_t               dst_ep_id; /* Endpoint ID of destination, can be

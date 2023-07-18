@@ -106,29 +106,36 @@ void ucs_balancer_destroy()
     kh_destroy_inplace(aggregator_hash, &ucs_balancer.hash);
 }
 
+static ucs_balancer_element_t *ucs_balancer_put_element(void *key)
+{
+    int ret;
+    khint_t iter;
+    ucs_balancer_element_t *elem;
+
+    iter      = kh_put(aggregator_hash, &ucs_balancer.hash, (uint64_t)key, &ret);
+    elem      = &kh_val(&ucs_balancer.hash, iter);
+    elem->key = key;
+
+    if ((ret == UCS_KH_PUT_BUCKET_EMPTY) || (ret == UCS_KH_PUT_BUCKET_CLEAR)) {
+        elem->hit_count = 0;
+        elem->marked    = 0;
+        elem->tx        = 0;
+        elem->rx        = 0;
+    }
+
+    elem->hit_count ++;
+    return elem;
+}
+
 void ucs_balancer_aggregate()
 {
     static void *results[UCS_BALANCER_MAX_LRU_SIZE];
-    ucs_balancer_element_t *elem;
-    khint_t iter;
-    int ret;
     size_t size, i;
 
     ucs_lru_get(ucs_balancer.lru, results, &size);
 
     for (i = 0; i < size; ++ i) {
-        iter      = kh_put(aggregator_hash, &ucs_balancer.hash, (uint64_t)results[i], &ret);
-        elem      = &kh_val(&ucs_balancer.hash, iter);
-        elem->key = results[i];
-
-        if ((ret == UCS_KH_PUT_BUCKET_EMPTY) || (ret == UCS_KH_PUT_BUCKET_CLEAR)) {
-            elem->hit_count = 0;
-            elem->marked    = 0;
-            elem->tx        = 0;
-            elem->rx        = 0;
-        }
-
-        elem->hit_count ++;
+        ucs_balancer_put_element(results[i]);
     }
 }
 
@@ -160,6 +167,20 @@ static size_t ucs_balancer_score(ucs_balancer_element_t *item)
     return ucs_max(item->tx, item->rx);
 }
 
+size_t ucs_balancer_get_score(void *key)
+{
+    ucs_balancer_element_t *item;
+    khint_t iter;
+
+    iter = kh_get(aggregator_hash, &ucs_balancer.hash, (uint64_t)key);
+    if (iter == kh_end(&ucs_balancer.hash)) {
+        //todo: error
+    }
+
+    item = &kh_value(&ucs_balancer.hash, iter);
+    return ucs_balancer_score(item);
+}
+
 static ucs_balancer_element_t *ucs_balancer_get_min_active()
 {
     ucs_balancer_element_t *min_item, *item;
@@ -174,13 +195,56 @@ static ucs_balancer_element_t *ucs_balancer_get_min_active()
     return min_item;
 }
 
-static int ucs_balancer_is_important(ucs_balancer_element_t *elem)
+//todo: remove from hash table when ejecting
+
+static ucs_balancer_element_t *ucs_balancer_pushpop_active(ucs_balancer_element_t *elem)
+{
+    ucs_balancer_element_t *min_item;
+
+    ucs_list_add_tail(&ucs_balancer.active_list, &elem->list);
+    if (ucs_list_length(&ucs_balancer.active_list) <= ucs_balancer.rc_size) {
+        return NULL;
+    }
+
+    min_item = ucs_balancer_get_min_active();
+    ucs_list_del(&min_item->list);
+    return min_item;
+}
+
+static int ucs_balancer_is_active(ucs_balancer_element_t *elem)
+{
+    ucs_balancer_element_t *item;
+
+    ucs_list_for_each(item, &ucs_balancer.active_list, list) {
+        if (elem == item) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+void *ucs_balancer_push_rx(void *key, size_t score)
+{
+    ucs_balancer_element_t *element, *ejected;
+    element = ucs_balancer_put_element(key);
+    element->rx = score;
+
+    ejected = NULL;
+    if (!ucs_balancer_is_active(element)) {
+        ejected = ucs_balancer_pushpop_active(element);
+    }
+
+    return ejected;
+}
+
+int ucs_balancer_is_important(size_t score)
 {
     static const double rc_thresh = 0.00002;
     int epsilon                   = 1;
     ucs_balancer_element_t *min_item;
 
-    if (ucs_balancer_score(elem) < rc_thresh * UCS_BALANCER_MAX_SAMPLES) {
+    if (score < rc_thresh * UCS_BALANCER_MAX_SAMPLES) {
         return 0;
     }
 
@@ -189,20 +253,7 @@ static int ucs_balancer_is_important(ucs_balancer_element_t *elem)
     }
 
     min_item = ucs_balancer_get_min_active();
-    return (ucs_balancer_score(elem) - ucs_balancer_score(min_item)) > epsilon;
-}
-
-static void ucs_balancer_pushpop_active(ucs_balancer_element_t *elem)
-{
-    ucs_balancer_element_t *min_item;
-
-    ucs_list_add_tail(&ucs_balancer.active_list, &elem->list);
-    if (ucs_list_length(&ucs_balancer.active_list) <= ucs_balancer.rc_size) {
-        return;
-    }
-
-    min_item = ucs_balancer_get_min_active();
-    ucs_list_del(&min_item->list);
+    return (score - ucs_balancer_score(min_item)) > epsilon;
 }
 
 static void ucs_balancer_flush_tx()
@@ -222,19 +273,6 @@ static void ucs_balancer_flush_tx()
     }
 }
 
-static int ucs_balancer_is_active(ucs_balancer_element_t *elem)
-{
-    ucs_balancer_element_t *item;
-
-    ucs_list_for_each(item, &ucs_balancer.active_list, list) {
-        if (elem == item) {
-            return 1;
-        }
-    }
-
-    return 0;
-}
-
 void ucs_balancer_get(void **arr_p, size_t *size_p)
 {
     ucs_balancer_element_t *item;
@@ -245,6 +283,7 @@ void ucs_balancer_get(void **arr_p, size_t *size_p)
     }
 
     *size_p = ucs_list_length(&ucs_balancer.active_list);
+}
 
 //////////////////////////////////////////
 //    printf("RC:\n");
@@ -254,7 +293,6 @@ void ucs_balancer_get(void **arr_p, size_t *size_p)
 //    }
 //
 //    printf("\n");
-}
 
 void ucs_balancer_flush()
 {
@@ -288,7 +326,7 @@ void ucs_balancer_flush()
             break;
         }
 
-        if (!ucs_balancer_is_important(max_elem)) {
+        if (!ucs_balancer_is_important(ucs_balancer_score(max_elem))) {
             break;
         }
 

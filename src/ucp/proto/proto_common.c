@@ -655,17 +655,14 @@ void flush_balancer()
 {
     size_t size;
     static void *results[UCS_BALANCER_MAX_LRU_SIZE];
-//    unsigned pack_flags;
-//    unsigned addr_indices[16];
     ucp_ep_h ep;
-//    ucp_address_t *address;
-//    size_t address_length;
-//    ucp_unpacked_address_t remote_address;
 
-    ucs_balancer_flush(results, &size);
+    ucs_balancer_get(results, &size);
     if (size == 0) {
         return;
     }
+
+    //todo: promote and demote multiple
 
     if (once) {
         return;
@@ -673,27 +670,10 @@ void flush_balancer()
 
     once = 1;
     ep = results[0];
-    ep->important = 1;
+
     ucp_ep_update_flags(ep, 0, UCP_EP_FLAG_LOCAL_CONNECTED);
-
-    ucp_wireup_send_pre_request(ep);
-
-//    ucp_worker_get_address(ep->worker, &address, &address_length);
-//
-//    if ((ep->worker->context->num_mem_type_detect_mds > 0) ||
-//          ep->worker->context->config.ext.proto_enable) {
-//          pack_flags = UCP_ADDRESS_PACK_FLAG_SYS_DEVICE;
-//      }
-//
-//    ucp_address_unpack(ep->worker, address,
-//                      pack_flags | UCP_ADDRESS_PACK_FLAG_WORKER_UUID |
-//                       UCP_ADDRESS_PACK_FLAG_WORKER_NAME |
-//                       UCP_ADDRESS_PACK_FLAG_DEVICE_ADDR |
-//                       UCP_ADDRESS_PACK_FLAG_TL_RSC_IDX |
-//                       UCP_ADDRESS_PACK_FLAG_IFACE_ADDR | UCP_ADDRESS_PACK_FLAG_EP_ADDR,
-//                                &remote_address);
-//
-//    ucp_wireup_init_lanes(ep, 0, &ucp_tl_bitmap_max, &remote_address, addr_indices);
+    ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_PROMOTION_REQUEST,
+                                     &ucp_tl_bitmap_max, NULL);
 }
 
 void ucp_proto_request_zcopy_completion(uct_completion_t *self)
