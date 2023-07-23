@@ -29,5 +29,6 @@ void ucs_balancer_get(ucs_balancer_state_t *state);
 int ucs_balancer_is_important(size_t score);
 void *ucs_balancer_push_rx(void *key, size_t score);
 size_t ucs_balancer_get_score(void *key);
+void ucs_balancer_remove(void *key);
 
 #endif

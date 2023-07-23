@@ -225,6 +225,25 @@ static int ucs_balancer_is_active(ucs_balancer_element_t *elem)
     return 0;
 }
 
+void ucs_balancer_remove(void *key)
+{
+    ucs_balancer_element_t *item;
+    khint_t iter;
+
+    iter = kh_get(aggregator_hash, &ucs_balancer.hash, (uint64_t)key);
+    if (iter == kh_end(&ucs_balancer.hash)) {
+        //todo: error
+    }
+
+    item = &kh_value(&ucs_balancer.hash, iter);
+    if (!ucs_balancer_is_active(item)) {
+        //todo: error
+        return;
+    }
+
+    ucs_list_del(&item->list);
+}
+
 void *ucs_balancer_push_rx(void *key, size_t score)
 {
     ucs_balancer_element_t *element, *ejected;
@@ -278,6 +297,8 @@ void ucs_balancer_get(ucs_balancer_state_t *state)
 {
     ucs_balancer_element_t *item;
     void **elem;
+
+    ucs_array_set_length(&state->array, 0);
 
     ucs_list_for_each(item, &ucs_balancer.active_list, list) {
         elem = ucs_array_append_fixed(rc_ptr, &state->array);
