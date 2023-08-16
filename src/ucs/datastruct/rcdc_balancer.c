@@ -58,8 +58,6 @@ typedef struct {
 
 static ucs_balancer_t ucs_balancer;
 
-//todo: remove and use tick_per_flush.
-#define UCS_BALANCER_MAX_SAMPLES 100
 #define SEC_TO_US 1e6
 
 //todo: khash resizing cause issues, find out why it's triggered and avoid it.
@@ -138,6 +136,8 @@ void ucs_balancer_aggregate()
     for (i = 0; i < size; ++ i) {
         ucs_balancer_put_element(results[i]);
     }
+
+    ucs_lru_reset(ucs_balancer.lru);
 }
 
 int ucs_balancer_add(void *element)
@@ -175,7 +175,8 @@ size_t ucs_balancer_get_score(void *key)
 
     iter = kh_get(aggregator_hash, &ucs_balancer.hash, (uint64_t)key);
     if (iter == kh_end(&ucs_balancer.hash)) {
-        //todo: error
+        return 0;
+//        ucs_assertv(0, "ucs_balancer_get_score failed: %p", key);
     }
 
     item = &kh_value(&ucs_balancer.hash, iter);
@@ -241,13 +242,19 @@ void ucs_balancer_remove(void *key)
         return;
     }
 
+    //todo: remove from hash
     ucs_list_del(&item->list);
 }
 
 void *ucs_balancer_push_rx(void *key, size_t score)
 {
     ucs_balancer_element_t *element, *ejected;
-    element = ucs_balancer_put_element(key);
+
+    if (!ucs_balancer_is_important(score)) {
+        return NULL;
+    }
+
+    element     = ucs_balancer_put_element(key);
     element->rx = score;
 
     ejected = NULL;
@@ -260,13 +267,17 @@ void *ucs_balancer_push_rx(void *key, size_t score)
 
 int ucs_balancer_is_important(size_t score)
 {
-    static const double rc_thresh = 0.00002;
+    static const double rc_thresh = 0.6;
     int epsilon                   = 1;
     ucs_balancer_element_t *min_item;
 
-    if (score < rc_thresh * UCS_BALANCER_MAX_SAMPLES) {
+//    printf("score: %lu %.1f %u\n", score, rc_thresh, ucs_balancer.ticks_per_flush);
+
+    if (score < rc_thresh * ucs_balancer.ticks_per_flush) {
         return 0;
     }
+
+//    printf("passed\n");
 
     if (ucs_list_length(&ucs_balancer.active_list) < ucs_balancer.rc_size) {
         return 1;
@@ -281,6 +292,7 @@ static void ucs_balancer_flush_tx()
     khint_t k;
     ucs_balancer_element_t *elem;
 
+    //todo: remove hit_count and use tx instead.
     for (k = kh_begin(&ucs_balancer.hash); k != kh_end(&ucs_balancer.hash); ++k) {
         if (!kh_exist(&ucs_balancer.hash, k)) {
             continue;
@@ -298,25 +310,24 @@ void ucs_balancer_get(ucs_balancer_state_t *state)
     ucs_balancer_element_t *item;
     void **elem;
 
-    ucs_array_set_length(&state->array, 0);
+    state->flushed = ucs_balancer.flushed;
 
+    if (!ucs_balancer.flushed) {
+        return;
+    }
+
+    ucs_array_set_length(&state->array, 0);
+    printf("RC: ");
     ucs_list_for_each(item, &ucs_balancer.active_list, list) {
         elem = ucs_array_append_fixed(rc_ptr, &state->array);
         *elem = item->key;
-    }
 
-    state->flushed       = ucs_balancer.flushed;
+        printf("(%p, %lu), ", item->key, item->tx);
+    }
+    printf("\n");
+
     ucs_balancer.flushed = 0;
 }
-
-//////////////////////////////////////////
-//    printf("RC:\n");
-//
-//    for (i = 0; i < ucs_balancer.rc_size; ++ i) {
-//        printf("(%p,%lu), ", elem_arr[i].key, elem_arr[i].hit_count);
-//    }
-//
-//    printf("\n");
 
 void ucs_balancer_flush()
 {

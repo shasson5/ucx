@@ -12,6 +12,8 @@
 
 #include <ucp/dt/datatype_iter.inl>
 #include <ucp/core/ucp_request.inl>
+#include <ucs/datastruct/rcdc_balancer.h>
+#include <ucp/wireup/wireup_ep.h>
 
 
 static UCS_F_ALWAYS_INLINE ucs_status_t
@@ -235,6 +237,48 @@ ucp_proto_request_send_init(ucp_request_t *req, ucp_ep_h ep, uint32_t flags)
     req->send.ep = ep;
 }
 
+//todo: promote and demote multiple
+
+static int is_wireup_ep(ucp_ep_h ep)
+{
+    ucp_lane_index_t lane;
+    uct_ep_h uct_ep;
+
+    for (lane = 0; lane < ucp_ep_num_lanes(ep); ++lane) {
+        uct_ep = ucp_ep_get_lane(ep, lane);
+        if (ucp_wireup_ep_test(uct_ep)) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static inline void flush_balancer()
+{
+    void *buffer[10];
+    ucs_balancer_state_t state = {UCS_ARRAY_FIXED_INITIALIZER(buffer, ucs_static_array_size(buffer)), 10};
+    ucp_ep_h ep;
+
+    ucs_balancer_get(&state);
+
+    if (!state.flushed) {
+        return;
+    }
+
+    ep = ucs_array_elem(&state.array, 0);
+
+    if (is_wireup_ep(ep) ||
+            !strcmp(ep->worker->context->tl_rscs[ucp_ep_config(ep)->key.lanes[ucp_ep_config(ep)->key.am_lane].rsc_index].tl_rsc.tl_name, "rc_mlx5")) {
+        return;
+    }
+
+    printf("sending promotion request from %p to %p (%lu)\n", ep, ((void *)ep->ext->remote_ep_id), ucs_balancer_get_score(ep));
+    ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_PROMOTION_REQUEST,
+                                     &ucp_tl_bitmap_max, NULL);
+}
+
+static int counter2 = 0;
 
 static UCS_F_ALWAYS_INLINE ucs_status_ptr_t ucp_proto_request_send_op_common(
         ucp_worker_h worker, ucp_ep_h ep, ucp_proto_select_t *proto_select,
@@ -269,6 +313,20 @@ static UCS_F_ALWAYS_INLINE ucs_status_ptr_t ucp_proto_request_send_op_common(
                       ucs_string_buffer_cstr(&strb));
         ucs_string_buffer_cleanup(&strb);
     }
+
+    if (req->send.ep == NULL) {
+        printf("req->send.ep %p\n", req->send.ep);
+    }
+
+    ucs_balancer_add(req->send.ep);
+    flush_balancer();
+
+    if ((counter2 % 1000000) == 0) {
+        printf("zcopy %p: %s %lu\n", req->send.ep, req->send.ep->worker->context->tl_rscs[ucp_ep_config(req->send.ep)->key.lanes[ucp_ep_config(req->send.ep)->key.am_lane].rsc_index].tl_rsc.tl_name,
+                msg_length);
+    }
+
+    counter2 += 1;
 
     return req + 1;
 }

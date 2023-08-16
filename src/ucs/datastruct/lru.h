@@ -17,5 +17,6 @@ ucs_lru_h ucs_lru_init(size_t capacity);
 void ucs_lru_destroy(ucs_lru_h lru);
 ucs_status_t ucs_lru_touch(ucs_lru_h lru, void *key);
 void ucs_lru_get(const ucs_lru_h lru, void **elements, size_t *size);
+void ucs_lru_reset(ucs_lru_h lru);
 
 #endif

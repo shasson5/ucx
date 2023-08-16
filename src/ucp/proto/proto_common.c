@@ -10,7 +10,6 @@
 
 #include "proto_debug.h"
 #include "proto_common.inl"
-#include <ucs/datastruct/rcdc_balancer.h>
 
 #include <ucp/am/ucp_am.inl>
 #include <uct/api/v2/uct_v2.h>
@@ -649,68 +648,11 @@ ucp_proto_common_find_am_bcopy_hdr_lane(const ucp_proto_init_params_t *params)
     return lane;
 }
 
-static int counter = 0;
-//todo: promote and demote multiple
-
-void flush_balancer()
-{
-    void *buffer[10];
-    ucs_balancer_state_t state = {UCS_ARRAY_FIXED_INITIALIZER(buffer, ucs_static_array_size(buffer)), 10};
-    ucp_ep_h ep;
-    int i;
-
-    ucs_balancer_get(&state);
-
-    if (!state.flushed) {
-        return;
-    }
-
-    if (counter >= 2) {
-        return;
-    }
-
-    counter ++;
-
-    if (counter == 1) {
-        for (i = 0; i < ucs_array_length(&state.array); ++ i) {
-            ep = ucs_array_elem(&state.array, i);
-//            if (strncmp(ep->worker->context->tl_rscs[ucp_ep_config(ep)->key.lanes[ucp_ep_config(ep)->key.rma_bw_lanes[0]].rsc_index].tl_rsc.tl_name, "dc_mlx5", 7) == 0) {
-            if (((uint64_t)ep & 0xfff) == 0) {
-                break;
-            }
-        }
-
-        ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_PROMOTION_REQUEST,
-                                         &ucp_tl_bitmap_max, NULL);
-    }
-    else {
-        for (i = 0; i < ucs_array_length(&state.array); ++ i) {
-            ep = ucs_array_elem(&state.array, i);
-            if (((uint64_t)ep & 0xfff) == 0) {
-                break;
-            }
-        }
-
-        ucp_wireup_send_demo_req(ep);
-    }
-
-    printf("flush %p\n", ep);
-}
-
-static int counter2 = 0;
-
 void ucp_proto_request_zcopy_completion(uct_completion_t *self)
 {
     ucp_request_t *req = ucs_container_of(self, ucp_request_t,
                                           send.state.uct_comp);
-    ucs_balancer_add(req->send.ep);
-    flush_balancer();
 
-    if ((counter2 % 30000) == 0) {
-        printf("zcopy: %s\n", req->send.ep->worker->context->tl_rscs[ucp_ep_config(req->send.ep)->key.lanes[ucp_ep_config(req->send.ep)->key.am_lane].rsc_index].tl_rsc.tl_name);
-    }
-
-    counter2 ++;
 
     /* request should NOT be on pending queue because when we decrement the last
      * refcount the request is not on the pending queue any more

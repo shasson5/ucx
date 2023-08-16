@@ -566,7 +566,7 @@ ucp_wireup_prepare_ep(ucp_worker_h worker,
 
     status = ucp_ep_create_base(worker, ep_init_flags,
                                 remote_address->name,
-                                "remote-request", &ep);
+                                "promo-request", &ep);
     if (status != UCS_OK) {
         return NULL;
     }
@@ -610,13 +610,25 @@ ucp_wireup_process_promotion_request(ucp_worker_h worker, ucp_ep_h ep,
 {
     ucp_ep_h ejected_ep;
     ucp_tl_bitmap_t tl_bitmap;
+    unsigned ep_init_flags = UCP_EP_INIT_CREATE_AM_LANE;
+    unsigned addr_indices[UCP_MAX_LANES];
 
+    //todo: move into push_rx
     if (!ucs_balancer_is_important(msg->score)) {
         return;
     }
 
+    printf("received promotion request from %p to %p (%u)\n", (void *)msg->src_ep_id, ep, msg->score);
+    ucp_ep_update_flags(ep, 0, UCP_EP_FLAG_LOCAL_CONNECTED | UCP_EP_FLAG_REMOTE_CONNECTED);
+
     if (ep == NULL) {
         ep = ucp_wireup_prepare_ep(worker, msg, remote_address);
+    }
+    else {
+        /* initialize transport endpoints */
+        ep->important = 1;
+        ucp_wireup_init_lanes(ep, ep_init_flags, &ucp_tl_bitmap_max,
+                                       remote_address, addr_indices);
     }
 
     ucp_ep_update_remote_id(ep, msg->src_ep_id);
@@ -628,7 +640,7 @@ ucp_wireup_process_promotion_request(ucp_worker_h worker, ucp_ep_h ep,
         ucp_wireup_msg_send(ejected_ep, UCP_WIREUP_MSG_DEMOTION_REQUEST, &tl_bitmap, NULL);
     }
 
-    ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_NEGOTIATION_ACK, &ucp_tl_bitmap_max, NULL);
+    ucp_wireup_send_request(ep);
 }
 
 static UCS_F_NOINLINE void
@@ -641,31 +653,6 @@ ucp_wireup_process_demo_resp(ucp_worker_h worker, ucp_ep_h ep,
     //todo: add resolve remote id here.
     ep->important = 0;
     ucp_wireup_init_lanes(ep, UCP_EP_INIT_CREATE_AM_LANE, &ucp_tl_bitmap_max, remote_address, addr_indices);
-    ucp_wireup_send_request(ep);
-}
-
-static UCS_F_NOINLINE void
-ucp_wireup_process_negotiation_ack(ucp_worker_h worker, ucp_ep_h ep,
-                                   const ucp_wireup_msg_t *msg,
-                                   const ucp_unpacked_address_t *remote_address)
-{
-    ucs_status_t status;
-    ucp_ep_h ejected_ep;
-    unsigned addr_indices[UCP_MAX_LANES];
-    ejected_ep = ucs_balancer_push_rx(ep, msg->score);
-
-    if (ejected_ep != NULL) {
-        ucp_wireup_msg_send(ejected_ep, UCP_WIREUP_MSG_DEMOTION_REQUEST, &ucp_tl_bitmap_max, NULL);
-    }
-
-    ep->important = 1;
-    ucp_ep_update_remote_id(ep, msg->src_ep_id);
-    status = ucp_wireup_init_lanes(ep, UCP_EP_INIT_CREATE_AM_LANE, &ucp_tl_bitmap_max,
-                                   remote_address, addr_indices);
-    if (status != UCS_OK) {
-        printf("error\n");
-    }
-
     ucp_wireup_send_request(ep);
 }
 
@@ -708,6 +695,10 @@ ucp_wireup_process_request(ucp_worker_h worker, ucp_ep_h ep,
     ucs_trace("got wireup request from 0x%"PRIx64" src_ep_id 0x%"PRIx64""
               " dst_ep_id 0x%"PRIx64" conn_sn %d", remote_address->uuid,
               msg->src_ep_id, msg->dst_ep_id, msg->conn_sn);
+
+//    if (ejected_ep != NULL) {
+//        ucp_wireup_msg_send(ejected_ep, UCP_WIREUP_MSG_DEMOTION_REQUEST, &ucp_tl_bitmap_max, NULL);
+//    }
 
     if (ep != NULL) {
         ucs_assert(msg->dst_ep_id != UCS_PTR_MAP_KEY_INVALID);
@@ -757,6 +748,11 @@ ucp_wireup_process_request(ucp_worker_h worker, ucp_ep_h ep,
             ucp_ep_update_flags(ep, UCP_EP_FLAG_CONNECT_REQ_IGNORED, 0);
             return;
         }
+    }
+
+    if (msg->score > 0) {
+        //todo: check return value
+        ucs_balancer_push_rx(ep, msg->score);
     }
 
     ucp_ep_update_flags(ep, 0, UCP_EP_FLAG_LOCAL_CONNECTED | UCP_EP_FLAG_REMOTE_CONNECTED);
@@ -1015,8 +1011,6 @@ static ucs_status_t ucp_wireup_msg_handler(void *arg, void *data,
         ucp_wireup_process_ack(worker, ep, msg);
     } else if (msg->type == UCP_WIREUP_MSG_PROMOTION_REQUEST) {
         ucp_wireup_process_promotion_request(worker, ep, msg, &remote_address);
-    } else if (msg->type == UCP_WIREUP_MSG_NEGOTIATION_ACK) {
-        ucp_wireup_process_negotiation_ack(worker, ep, msg, &remote_address);
     } else if (msg->type == UCP_WIREUP_MSG_DEMOTION_REQUEST) {
         ucp_wireup_process_demotion_request(worker, ep, msg, &remote_address);
     } else if (msg->type == UCP_WIREUP_MSG_DEMOTION_RESPONSE) {
@@ -1752,7 +1746,7 @@ ucs_status_t ucp_wireup_send_pre_request(ucp_ep_h ep)
 
 void ucp_wireup_send_demo_req(ucp_ep_h ep)
 {
-    ucp_wireup_connect_remote();
+//    ucp_wireup_connect_remote();
     ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_DEMOTION_REQUEST, &ucp_tl_bitmap_max, NULL);
 }
 
@@ -1798,12 +1792,12 @@ ucs_status_t ucp_wireup_connect_remote(ucp_ep_h ep, ucp_lane_index_t lane)
     ucp_wireup_ep_set_next_ep(ucp_ep_get_lane(ep, lane), uct_ep,
                               ucp_ep_get_rsc_index(ep, lane));
 
-//    if (!(ep->flags & UCP_EP_FLAG_CONNECT_REQ_QUEUED)) {
-//        status = ucp_wireup_send_request(ep);
-//        if (status != UCS_OK) {
-//            goto err_destroy_wireup_ep;
-//        }
-//    }
+    if (!(ep->flags & UCP_EP_FLAG_CONNECT_REQ_QUEUED)) {
+        status = ucp_wireup_send_request(ep);
+        if (status != UCS_OK) {
+            goto err_destroy_wireup_ep;
+        }
+    }
 
     ucs_queue_for_each_extract(req, &tmp_q, send.uct.priv, 1) {
         ucs_trace_req("ep %p: requeue request %p after wireup request",

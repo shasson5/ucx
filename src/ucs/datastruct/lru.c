@@ -103,6 +103,13 @@ static void ucs_lru_remove(ucs_lru_h lru)
     kh_del(lru_hash, &lru->hash, iter);
 }
 
+void ucs_lru_reset(ucs_lru_h lru)
+{
+    ucs_list_head_init(&lru->list);
+    lru->size = 0;
+    kh_clear(lru_hash, &lru->hash);
+}
+
 //todo: fix capacity + 1 (capacity can get to more than required).
 
 ucs_status_t ucs_lru_touch(ucs_lru_h lru, void *key)
