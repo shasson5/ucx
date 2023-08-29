@@ -59,3 +59,8 @@ void ucs_lru_destroy(ucs_lru_h lru)
     ucs_free(lru);
 }
 
+void ucs_lru_reset(ucs_lru_h lru)
+{
+    ucs_list_head_init(&lru->list);
+    kh_clear(ucs_lru_hash, &lru->hash);
+}

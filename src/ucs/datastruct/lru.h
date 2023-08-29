@@ -110,6 +110,15 @@ static UCS_F_ALWAYS_INLINE void ucs_lru_put(ucs_lru_h lru, void *key)
 }
 
 
+/**
+ * @brief Resets an LRU object.
+ *
+ * @param [in] lru  Handle to the LRU cache.
+ *
+ */
+void ucs_lru_reset(ucs_lru_h lru);
+
+
 static UCS_F_ALWAYS_INLINE void **ucs_lru_next_key(ucs_list_link_t *elem)
 {
     return &ucs_container_of(elem->next, ucs_lru_element_t, list)->key;
