@@ -36,7 +36,7 @@ protected:
     run(const std::vector<uint64_t> &elements, std::vector<uint64_t> &expected)
     {
         for (size_t i = 0; i < m_capacity * 10; ++i) {
-            ucs_lru_put(m_lru, (void*)elements[i % elements.size()]);
+            ucs_lru_push(m_lru, (void*)elements[i % elements.size()]);
         }
 
         int elem_index = 0;

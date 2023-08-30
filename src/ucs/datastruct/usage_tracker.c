@@ -37,15 +37,7 @@ ucs_status_t ucs_usage_tracker_create(const ucs_usage_tracker_params_t *params,
         goto err_free_tracker;
     }
 
-    kh_init_no_shrink(usage_tracker_hash, &usage_tracker->hash);
-
-    if (kh_resize(usage_tracker_hash, &usage_tracker->hash,
-                  params->active_capacity * 2) < 0) {
-        ucs_error("failed to resize usage tracker hash table: "
-                  "active_capacity=%u", params->active_capacity);
-        status = UCS_ERR_NO_MEMORY;
-        goto err_free_lru;
-    }
+    kh_init_inplace(usage_tracker_hash, &usage_tracker->hash);
 
     usage_tracker->params = *params;
     usage_tracker->ticks  = 0;
@@ -53,9 +45,6 @@ ucs_status_t ucs_usage_tracker_create(const ucs_usage_tracker_params_t *params,
 
     return UCS_OK;
 
-err_free_lru:
-    ucs_lru_destroy(usage_tracker->lru);
-    kh_destroy_inplace(usage_tracker_hash, &usage_tracker->hash);
 err_free_tracker:
     ucs_free(usage_tracker);
 err:
@@ -125,21 +114,19 @@ ucs_usage_tracker_get_active_count(ucs_usage_tracker_h usage_tracker)
 {
     unsigned active_count = 0;
     ucs_usage_tracker_element_t *item;
-    khiter_t k;
+    uint64_t key;
+    khiter_t iter;
 
-    for (k = kh_begin(&usage_tracker->hash); k != kh_end(&usage_tracker->hash);
-         ++k) {
-        if (!kh_exist(&usage_tracker->hash, k)) {
-            continue;
-        }
+    kh_foreach_key(&usage_tracker->hash, key,
+        iter = kh_get(usage_tracker_hash, &usage_tracker->hash, key);
+        item = &kh_val(&usage_tracker->hash, iter);
 
-        item = &kh_val(&usage_tracker->hash, k);
         if (!item->active) {
             continue;
         }
 
         active_count++;
-    }
+    )
 
     return active_count;
 }
@@ -150,18 +137,16 @@ static ucs_usage_tracker_element_t *
 ucs_usage_tracker_get_min_active(ucs_usage_tracker_h usage_tracker)
 {
     ucs_usage_tracker_element_t *min_item = NULL;
-    ucs_usage_tracker_params_t *params    = usage_tracker->params;
+    ucs_usage_tracker_params_t *params    = &usage_tracker->params;
     ucs_usage_tracker_element_t *item;
-    khiter_t k;
+    khiter_t iter;
+    uint64_t key;
     unsigned active_count;
 
-    for (k = kh_begin(&usage_tracker->hash); k != kh_end(&usage_tracker->hash);
-         ++k) {
-        if (!kh_exist(&usage_tracker->hash, k)) {
-            continue;
-        }
+    kh_foreach_key(&usage_tracker->hash, key,
+        iter = kh_get(usage_tracker_hash, &usage_tracker->hash, key);
+        item = &kh_val(&usage_tracker->hash, iter);
 
-        item = &kh_val(&usage_tracker->hash, k);
         if (!item->active) {
             continue;
         }
@@ -170,7 +155,7 @@ ucs_usage_tracker_get_min_active(ucs_usage_tracker_h usage_tracker)
                                    ucs_usage_tracker_score(min_item))) {
             min_item = item;
         }
-    }
+    )
 
     active_count = ucs_usage_tracker_get_active_count(usage_tracker);
     return (active_count == params->active_capacity) ? min_item : NULL;
@@ -246,59 +231,51 @@ ucs_usage_tracker_is_important(ucs_usage_tracker_h usage_tracker, size_t score)
 /* Update entry's score from last hit count and reset hit count */
 static void ucs_usage_tracker_flush_score(ucs_usage_tracker_h usage_tracker)
 {
-    khiter_t k;
+    khiter_t iter;
     ucs_usage_tracker_element_t *elem;
+    uint64_t key;
 
-    for (k = kh_begin(&usage_tracker->hash); k != kh_end(&usage_tracker->hash);
-         ++k) {
-        if (!kh_exist(&usage_tracker->hash, k)) {
-            continue;
-        }
-
-        elem            = &kh_val(&usage_tracker->hash, k);
+    kh_foreach_key(&usage_tracker->hash, key,
+        iter            = kh_get(usage_tracker_hash, &usage_tracker->hash, key);
+        elem            = &kh_val(&usage_tracker->hash, iter);
         elem->score     = elem->hit_count;
         elem->hit_count = 0;
-    }
+    )
 }
 
 void ucs_usage_tracker_get(ucs_usage_tracker_h usage_tracker)
 {
     const ucs_usage_tracker_params_t *params = &usage_tracker->params;
     ucs_usage_tracker_element_t *item;
-    khiter_t k;
+    khiter_t iter;
+    uint64_t key;
 
-    for (k = kh_begin(&usage_tracker->hash); k != kh_end(&usage_tracker->hash);
-         ++k) {
-        if (!kh_exist(&usage_tracker->hash, k)) {
-            continue;
-        }
-
-        item = &kh_val(&usage_tracker->hash, k);
+    kh_foreach_key(&usage_tracker->hash, key,
+        iter = kh_get(usage_tracker_hash, &usage_tracker->hash, key);
+        item = &kh_val(&usage_tracker->hash, iter);
 
         if (!item->active) {
             continue;
         }
 
         params->flush_cb(item->key, params->flush_arg);
-    }
+    )
 }
 
 /* Performs a flush operation.
  * Active list will be updated with the new results. */
 static void ucs_usage_tracker_flush(ucs_usage_tracker_h usage_tracker)
 {
-    khiter_t k;
+    khiter_t iter;
     ucs_usage_tracker_element_t *elem;
+    uint64_t key;
 
     ucs_usage_tracker_flush_score(usage_tracker);
 
-    for (k = kh_begin(&usage_tracker->hash); k != kh_end(&usage_tracker->hash);
-         ++k) {
-        if (!kh_exist(&usage_tracker->hash, k)) {
-            continue;
-        }
+    kh_foreach_key(&usage_tracker->hash, key,
+        iter = kh_get(usage_tracker_hash, &usage_tracker->hash, key);
+        elem = &kh_val(&usage_tracker->hash, iter);
 
-        elem = &kh_val(&usage_tracker->hash, k);
         if (elem->active) {
             continue;
         }
@@ -309,7 +286,7 @@ static void ucs_usage_tracker_flush(ucs_usage_tracker_h usage_tracker)
         }
 
         ucs_usage_tracker_pushpop_active(usage_tracker, elem);
-    }
+    )
 
     ucs_usage_tracker_get(usage_tracker);
 }

@@ -176,7 +176,7 @@ ucs_usage_tracker_remove(ucs_usage_tracker_h usage_tracker, void *key);
 static UCS_F_ALWAYS_INLINE void
 ucs_usage_tracker_add(ucs_usage_tracker_h usage_tracker, void *key)
 {
-    ucs_lru_put(usage_tracker->lru, key);
+    ucs_lru_push(usage_tracker->lru, key);
 }
 
 
