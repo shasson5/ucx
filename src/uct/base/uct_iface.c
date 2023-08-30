@@ -242,6 +242,13 @@ static int uct_iface_is_same_device(const uct_iface_h iface,
     return !memcmp(device_addr, dev_addr, attr.device_addr_len);
 }
 
+int uct_base_ep_is_connected(const uct_ep_h ep,
+                             const uct_ep_is_connected_params_t *params)
+{
+    return uct_base_iface_is_reachable(ep->iface, params->device_addr,
+                                       params->iface_addr);
+}
+
 int uct_iface_is_reachable_params_valid(
         const uct_iface_is_reachable_params_t *params, uint64_t flags)
 {

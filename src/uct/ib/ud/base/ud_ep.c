@@ -1859,3 +1859,31 @@ void uct_ud_ep_vfs_populate(uct_ud_ep_t *ep)
     ucs_vfs_obj_add_ro_file(ep, ucs_vfs_show_primitive, &ep->resend.max_psn,
                             UCS_VFS_TYPE_U16, "resend/max_psn");
 }
+
+int uct_ud_ep_is_connected_to_addr(const uct_ep_h tl_ep,
+                                   const uct_ep_is_connected_params_t *params)
+{
+    uct_ud_ep_t *ep = ucs_derived_of(tl_ep, uct_ud_ep_t);
+    const uct_ud_ep_addr_t *ep_addr;
+    uct_iface_is_reachable_params_t is_reachable_params;
+
+    if (!ucs_test_all_flags(params->field_mask,
+            UCT_EP_IS_CONNECTED_FIELD_IFACE_ADDR |
+            UCT_EP_IS_CONNECTED_FIELD_DEVICE_ADDR)) {
+        ucs_error("missing params (field_mask: %lu), both device_addr and "
+                  "ep_addr must be provided.",
+                  params->field_mask);
+        return 0;
+    }
+
+    if (params->field_mask & UCT_EP_IS_CONNECTED_FIELD_EP_ADDR) {
+        ep_addr = (const uct_ud_ep_addr_t*)params->ep_addr;
+        if (ep->dest_ep_id != uct_ib_unpack_uint24(ep_addr->ep_id)) {
+            return 0;
+        }
+    }
+
+    is_reachable_params.field_mask  = UCT_IFACE_IS_REACHABLE_FIELD_DEVICE_ADDR;
+    is_reachable_params.device_addr = params->device_addr;
+    return uct_ib_iface_is_reachable_v2(tl_ep->iface, &is_reachable_params);
+}

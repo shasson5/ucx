@@ -76,6 +76,24 @@ static int uct_rocm_copy_iface_is_reachable_v2(
            uct_iface_scope_is_reachable(tl_iface, params);
 }
 
+static int
+uct_rocm_copy_ep_is_connected(const uct_ep_h tl_ep,
+                              const uct_ep_is_connected_params_t *params)
+{
+    UCT_EP_PARAMS_CHECK_IS_CONNECTED_DEV_IFACE_ADDRS(params);
+    return uct_rocm_copy_iface_is_reachable(tl_ep->iface, params->device_addr,
+                                            params->iface_addr);
+}
+
+static int
+uct_rocm_copy_ep_is_connected(const uct_ep_h tl_ep,
+                              const uct_ep_is_connected_params_t *params)
+{
+    UCT_EP_PARAMS_CHECK_IS_CONNECTED_DEV_IFACE_ADDRS(params);
+    return uct_rocm_copy_iface_is_reachable(tl_ep->iface, params->device_addr,
+                                            params->iface_addr);
+}
+
 static ucs_status_t uct_rocm_copy_iface_query(uct_iface_h tl_iface,
                                               uct_iface_attr_t *iface_attr)
 {
@@ -241,7 +259,7 @@ static uct_iface_internal_ops_t uct_rocm_copy_iface_internal_ops = {
     .ep_invalidate         = (uct_ep_invalidate_func_t)ucs_empty_function_return_unsupported,
     .ep_connect_to_ep_v2   = ucs_empty_function_return_unsupported,
     .iface_is_reachable_v2 = uct_rocm_copy_iface_is_reachable_v2,
-    .ep_is_connected       = (uct_ep_is_connected_func_t)ucs_empty_function_return_zero_int
+    .ep_is_connected       = uct_rocm_copy_ep_is_connected
 };
 
 static UCS_CLASS_INIT_FUNC(uct_rocm_copy_iface_t, uct_md_h md, uct_worker_h worker,

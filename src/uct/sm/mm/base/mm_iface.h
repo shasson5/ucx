@@ -289,8 +289,10 @@ UCS_CLASS_DECLARE_NEW_FUNC(uct_mm_iface_t, uct_iface_t, uct_md_h, uct_worker_h,
 
 void uct_mm_iface_release_desc(uct_recv_desc_t *self, void *desc);
 
-
 ucs_status_t uct_mm_flush();
 
+int
+uct_mm_iface_is_reachable_v2(const uct_iface_h tl_iface,
+                            const uct_iface_is_reachable_params_t *params);
 
 #endif

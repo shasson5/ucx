@@ -84,6 +84,20 @@ uct_cma_ep_tx_error(uct_cma_ep_t *ep, const char *cma_call_name,
             strerror(cma_call_errno));
 }
 
+int uct_cma_ep_is_connected(const uct_ep_h tl_ep,
+                            const uct_ep_is_connected_params_t *params)
+{
+    uct_cma_ep_t *ep = ucs_derived_of(tl_ep, uct_cma_ep_t);
+    pid_t addr_pid;
+
+    UCT_EP_PARAMS_CHECK_IS_CONNECTED_DEV_IFACE_ADDRS(params);
+    addr_pid = *(pid_t*)params->iface_addr & ~UCT_CMA_IFACE_ADDR_FLAG_PID_NS;
+
+    return (ep->remote_pid == addr_pid) &&
+           uct_cma_iface_is_reachable(tl_ep->iface, params->device_addr,
+                                      params->iface_addr);
+}
+
 ucs_status_t uct_cma_ep_tx(uct_ep_h tl_ep, const uct_iov_t *iov, size_t iov_cnt,
                            ucs_iov_iter_t *iov_iter, size_t *length_p,
                            uint64_t remote_addr, uct_rkey_t rkey,

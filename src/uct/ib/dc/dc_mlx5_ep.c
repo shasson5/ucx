@@ -604,6 +604,43 @@ ucs_status_t uct_dc_mlx5_ep_get_bcopy(uct_ep_h tl_ep,
     return UCS_INPROGRESS;
 }
 
+int uct_dc_mlx5_ep_is_connected(const uct_ep_h tl_ep,
+                                const uct_ep_is_connected_params_t *params)
+{
+    uct_dc_mlx5_ep_t *ep = ucs_derived_of(tl_ep, uct_dc_mlx5_ep_t);
+    uct_dc_mlx5_iface_t *iface;
+    const uct_dc_mlx5_iface_addr_t *dc_addr;
+    uct_dc_mlx5_grh_ep_t *grh_ep;
+    union ibv_gid *rgid;
+
+    if (!ucs_test_all_flags(params->field_mask,
+            UCT_EP_IS_CONNECTED_FIELD_IFACE_ADDR |
+            UCT_EP_IS_CONNECTED_FIELD_DEVICE_ADDR)) {
+        ucs_error("missing params (field_mask: %lu), both device_addr and "
+                      "iface_addr must be provided.", params->field_mask);
+        return 0;
+    }
+
+    dc_addr = (const uct_dc_mlx5_iface_addr_t*)params->iface_addr;
+    iface   = ucs_derived_of(tl_ep->iface, uct_dc_mlx5_iface_t);
+
+    if (((dc_addr->flags & UCT_DC_MLX5_IFACE_ADDR_DC_VERS) !=
+         iface->version_flag) ||
+        (UCT_DC_MLX5_IFACE_ADDR_TM_ENABLED(dc_addr) !=
+         UCT_RC_MLX5_TM_ENABLED(&iface->super))) {
+        return 0;
+    }
+
+    rgid = NULL;
+    if (ep->flags & UCT_DC_MLX5_EP_FLAG_GRH) {
+        grh_ep = ucs_derived_of(tl_ep, uct_dc_mlx5_grh_ep_t);
+        rgid = (union ibv_gid *)grh_ep->grh_av.rgid;
+    }
+
+    return uct_ib_iface_is_same_device(
+                   (const uct_ib_address_t*)params->device_addr, ep->av.rlid >> 8,
+                   rgid);
+}
 
 ucs_status_t uct_dc_mlx5_ep_get_zcopy(uct_ep_h tl_ep, const uct_iov_t *iov,
                                       size_t iovcnt, uint64_t remote_addr,

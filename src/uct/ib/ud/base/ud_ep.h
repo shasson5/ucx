@@ -337,6 +337,8 @@ uct_ud_ep_do_pending(ucs_arbiter_t *arbiter, ucs_arbiter_group_t *group,
 
 void uct_ud_ep_vfs_populate(uct_ud_ep_t *ep);
 
+int uct_ud_ep_is_connected_to_addr(const uct_ep_h tl_ep,
+                                   const uct_ep_is_connected_params_t *params);
 
 static UCS_F_ALWAYS_INLINE void
 uct_ud_neth_set_packet_type(uct_ud_ep_t *ep, uct_ud_neth_t *neth, uint8_t id,

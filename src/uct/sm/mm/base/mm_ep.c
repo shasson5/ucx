@@ -71,6 +71,33 @@ uct_mm_ep_attach_remote_seg(uct_mm_ep_t *ep, uct_mm_seg_id_t seg_id,
     return UCS_OK;
 }
 
+int uct_mm_ep_is_connected(const uct_ep_h tl_ep,
+                           const uct_ep_is_connected_params_t *params)
+{
+    uct_mm_ep_t *ep              = ucs_derived_of(tl_ep, uct_mm_ep_t);
+    uct_mm_iface_addr_t *mm_addr = (uct_mm_iface_addr_t*)params->iface_addr;
+    uct_mm_iface_t *iface;
+    uct_mm_md_t *md;
+
+    UCT_EP_PARAMS_CHECK_IS_CONNECTED_DEV_IFACE_ADDRS(params);
+
+    iface = ucs_derived_of(tl_ep->iface, uct_mm_iface_t);
+    md    = ucs_derived_of(iface->super.super.md, uct_mm_md_t);
+
+    if (kh_get(uct_mm_remote_seg, &ep->remote_segs, mm_addr->fifo_seg_id) ==
+        kh_end(&ep->remote_segs)) {
+        return 0;
+    }
+
+    if ((ep->remote_iface_addr != NULL) &&
+        memcmp(ep->remote_iface_addr, mm_addr + 1, md->iface_addr_len)) {
+        return 0;
+    }
+
+    return uct_base_iface_is_reachable(tl_ep->iface, params->device_addr,
+                                       params->iface_addr);
+}
+
 static UCS_F_ALWAYS_INLINE ucs_status_t
 uct_mm_ep_get_remote_seg(uct_mm_ep_t *ep, uct_mm_seg_id_t seg_id, size_t length,
                          void **address_p)
