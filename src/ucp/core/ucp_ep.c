@@ -801,7 +801,7 @@ ucs_status_t ucp_ep_init_create_wireup(ucp_ep_h ep, unsigned ep_init_flags,
         ucp_ep_update_flags(ep, UCP_EP_FLAG_CONNECT_REQ_QUEUED, 0);
     }
 
-    status = ucp_wireup_ep_create(ep, NULL, &uct_ep);
+    status = ucp_wireup_ep_create(ep, &uct_ep);
     if (status != UCS_OK) {
         return status;
     }
@@ -1797,11 +1797,39 @@ ucp_lane_index_t ucp_ep_lookup_lane(ucp_ep_h ucp_ep, uct_ep_h uct_ep)
     return UCP_NULL_LANE;
 }
 
-static int ucp_ep_lane_is_dst_index_match(ucp_rsc_index_t dst_index1,
-                                          ucp_rsc_index_t dst_index2)
+static void
+ucp_ep_init_is_connected_params(uct_ep_is_connected_params_t *params,
+                                const ucp_address_entry_t *addr_entry)
 {
-    return (dst_index1 == UCP_NULL_RESOURCE) ||
-           (dst_index2 == UCP_NULL_RESOURCE) || (dst_index1 == dst_index2);
+    memset(params, 0, sizeof(*params));
+
+    if (addr_entry->dev_addr != NULL) {
+        params->device_addr = addr_entry->dev_addr;
+        params->field_mask |= UCT_EP_IS_CONNECTED_FIELD_DEVICE_ADDR;
+    }
+
+    if (addr_entry->iface_addr != NULL) {
+        params->iface_addr  = addr_entry->iface_addr;
+        params->field_mask |= UCT_EP_IS_CONNECTED_FIELD_IFACE_ADDR;
+    }
+
+    if (addr_entry->num_ep_addrs > 0) {
+        params->field_mask |= UCT_EP_IS_CONNECTED_FIELD_EP_ADDR;
+    }
+}
+
+int ucp_ep_lane_reused(ucp_lane_index_t lane_idx,
+                       const ucp_lane_index_t *reuse_map)
+{
+    ucp_lane_index_t lane;
+
+    for (lane = 0; lane < UCP_MAX_LANES; ++lane) {
+        if (reuse_map[lane] == lane_idx) {
+            return 1;
+        }
+    }
+
+    return 0;
 }
 
 int ucp_ep_config_lane_is_peer_match(const ucp_ep_config_key_t *key1,
@@ -1813,25 +1841,117 @@ int ucp_ep_config_lane_is_peer_match(const ucp_ep_config_key_t *key1,
     const ucp_ep_config_key_lane_t *config_lane2 = &key2->lanes[lane2];
 
     return (config_lane1->rsc_index == config_lane2->rsc_index) &&
-           (config_lane1->path_index == config_lane2->path_index) &&
-           ucp_ep_lane_is_dst_index_match(config_lane1->dst_md_index,
-                                          config_lane2->dst_md_index);
+           (config_lane1->path_index == config_lane2->path_index);
+}
+static ucp_lane_index_t
+ucp_ep_find_reachable_lane(const uct_ep_h uct_ep,
+                           const ucp_unpacked_address_t *remote_address,
+                           const unsigned *addr_indices,
+                           ucp_lane_index_t num_lanes,
+                           ucp_lane_index_t *lane_map)
+{
+    uct_iface_is_reachable_params_t params;
+    ucp_lane_index_t lane_idx;
+    unsigned addr_index;
+    ucp_address_entry_t *addr_entry;
+
+    params.field_mask = UCT_IFACE_IS_REACHABLE_FIELD_DEVICE_ADDR |
+                        UCT_IFACE_IS_REACHABLE_FIELD_IFACE_ADDR |
+                        UCT_IFACE_IS_REACHABLE_FIELD_SCOPE;
+    params.scope      = UCT_IFACE_REACHABILITY_SCOPE_NETWORK;
+
+    for (lane_idx = 0; lane_idx < num_lanes; ++lane_idx) {
+        if (ucp_ep_lane_reused(lane_idx, lane_map)) {
+            continue;
+        }
+
+        addr_index         = addr_indices[lane_idx];
+        addr_entry         = &remote_address->address_list[addr_index];
+        params.device_addr = addr_entry->dev_addr;
+        params.iface_addr  = addr_entry->iface_addr;
+
+        if (uct_iface_is_reachable_v2(uct_ep->iface, &params)) {
+            return lane_idx;
+        }
+    }
+
+    return UCP_NULL_LANE;
 }
 
-static ucp_lane_index_t
-ucp_ep_config_find_match_lane(const ucp_ep_config_key_t *key1,
-                              const ucp_rsc_index_t *dst_rsc_indices1,
-                              ucp_lane_index_t lane1,
-                              const ucp_ep_config_key_t *key2,
-                              const ucp_rsc_index_t *dst_rsc_indices2)
+ucp_lane_index_t ucp_ep_get_remote_lane(const uct_ep_h uct_ep,
+                                        const ucp_address_entry_t *addr_entry)
 {
-    ucp_lane_index_t lane_idx;
+    unsigned ep_index;
+    uct_ep_is_connected_params_t params;
 
-    for (lane_idx = 0; lane_idx < key2->num_lanes; ++lane_idx) {
-        if (ucp_ep_config_lane_is_peer_match(key1, lane1, key2, lane_idx) &&
-            ucp_ep_lane_is_dst_index_match(dst_rsc_indices1[lane1],
-                                           dst_rsc_indices2[lane_idx])) {
+    if ((addr_entry->num_ep_addrs == 0) || ucp_wireup_ep_test(uct_ep)) {
+        return UCP_NULL_LANE;
+    }
+
+    ucp_ep_init_is_connected_params(&params, addr_entry);
+
+    for (ep_index = 0; ep_index < addr_entry->num_ep_addrs; ++ep_index) {
+        params.ep_addr = addr_entry->ep_addrs[ep_index].addr;
+        if (uct_ep_is_connected(uct_ep, &params)) {
+            return addr_entry->ep_addrs[ep_index].lane;
+        }
+    }
+
+    return UCP_NULL_LANE;
+}
+
+static ucp_lane_index_t ucp_ep_find_next_matching_lane(ucp_ep_h ep,
+        uct_ep_h uct_ep, const ucp_unpacked_address_t *remote_address,
+        const unsigned *addr_indices, ucp_lane_index_t num_lanes,
+        ucp_lane_index_t *lane_map, uint16_t tl_name_csum,
+        const ucp_ep_config_key_t *key1, ucp_lane_index_t lane1,
+        const ucp_ep_config_key_t *key2)
+{
+    uct_ep_is_connected_params_t params;
+    ucp_lane_index_t lane_idx;
+    unsigned addr_index;
+    ucp_address_entry_t *addr_entry;
+    ucp_wireup_ep_t *wireup_ep;
+
+    if (ucp_wireup_ep_test(uct_ep)) {
+        if (ucp_ep_has_cm_lane(ep)) {
+            for (lane_idx = 0; lane_idx < num_lanes; ++lane_idx) {
+                if (ucp_ep_config_lane_is_peer_match(key1, lane1, key2, lane_idx)) {
+                    return lane_idx;
+                }
+            }
+
+            return UCP_NULL_RESOURCE;
+        }
+
+        wireup_ep = ucp_wireup_ep(uct_ep);
+        return ucp_ep_find_reachable_lane(wireup_ep->super.uct_ep,
+                                          remote_address, addr_indices,
+                                          num_lanes, lane_map);
+    }
+
+    for (lane_idx = 0; lane_idx < num_lanes; ++lane_idx) {
+        addr_index = addr_indices[lane_idx];
+        if (addr_index == UCP_NULL_RESOURCE) {
+            continue;
+        }
+
+        addr_entry = &remote_address->address_list[addr_index];
+
+        if ((tl_name_csum != addr_entry->tl_name_csum) ||
+            ucp_ep_lane_reused(lane_idx, lane_map)) {
+            continue;
+        }
+
+        if (ucp_ep_get_remote_lane(uct_ep, addr_entry) != UCP_NULL_LANE) {
             return lane_idx;
+        }
+
+        else if (addr_entry->num_ep_addrs == 0) {
+            ucp_ep_init_is_connected_params(&params, addr_entry);
+            if (uct_ep_is_connected(uct_ep, &params)) {
+                return lane_idx;
+            }
         }
     }
 
@@ -1840,19 +1960,32 @@ ucp_ep_config_find_match_lane(const ucp_ep_config_key_t *key1,
 
 /* Go through the first configuration and check if the lanes selected
  * for this configuration could be used for the second configuration */
-void ucp_ep_config_lanes_intersect(const ucp_ep_config_key_t *key1,
-                                   const ucp_rsc_index_t *dst_rsc_indices1,
+void ucp_ep_config_lanes_intersect(const ucp_ep_h ep,
+                                   const ucp_unpacked_address_t *remote_address,
+                                   const unsigned *addr_indices,
+                                   const ucp_ep_config_key_t *key1,
                                    const ucp_ep_config_key_t *key2,
-                                   const ucp_rsc_index_t *dst_rsc_indices2,
                                    ucp_lane_index_t *lane_map)
 {
+    ucp_context_h context = ep->worker->context;
     ucp_lane_index_t lane1_idx;
+    ucp_rsc_index_t rsc_index;
+    uint16_t tl_name_csum;
+    uct_ep_h uct_ep;
 
     for (lane1_idx = 0; lane1_idx < key1->num_lanes; ++lane1_idx) {
-        lane_map[lane1_idx] = ucp_ep_config_find_match_lane(key1,
-                                                            dst_rsc_indices1,
-                                                            lane1_idx, key2,
-                                                            dst_rsc_indices2);
+        if (lane1_idx == key1->cm_lane) {
+            lane_map[lane1_idx] = key2->cm_lane;
+            continue;
+        }
+
+        rsc_index           = key1->lanes[lane1_idx].rsc_index;
+        tl_name_csum        = context->tl_rscs[rsc_index].tl_name_csum;
+        uct_ep              = ucp_ep_get_lane(ep, lane1_idx);
+
+        lane_map[lane1_idx] = ucp_ep_find_next_matching_lane(ep,
+                uct_ep, remote_address, addr_indices, key2->num_lanes, lane_map,
+                tl_name_csum, key1, lane1_idx, key2);
     }
 }
 

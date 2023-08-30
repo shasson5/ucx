@@ -644,6 +644,8 @@ typedef struct ucp_conn_request {
     /* sa_data and packed worker address follow */
 } ucp_conn_request_t;
 
+int ucp_ep_lane_reused(ucp_lane_index_t lane_idx,
+                       const ucp_lane_index_t *reuse_map);
 
 int ucp_is_uct_ep_failed(uct_ep_h uct_ep);
 
@@ -730,15 +732,14 @@ ucs_status_t ucp_ep_config_init(ucp_worker_h worker, ucp_ep_config_t *config,
 
 void ucp_ep_config_cleanup(ucp_worker_h worker, ucp_ep_config_t *config);
 
-int ucp_ep_config_lane_is_peer_match(const ucp_ep_config_key_t *key1,
-                                     ucp_lane_index_t lane1,
-                                     const ucp_ep_config_key_t *key2,
-                                     ucp_lane_index_t lane2);
+ucp_lane_index_t ucp_ep_get_remote_lane(const uct_ep_h uct_ep,
+                                        const ucp_address_entry_t *addr_entry);
 
-void ucp_ep_config_lanes_intersect(const ucp_ep_config_key_t *key1,
-                                   const ucp_rsc_index_t *dst_rsc_indices1,
+void ucp_ep_config_lanes_intersect(const ucp_ep_h ep,
+                                   const ucp_unpacked_address_t *remote_address,
+                                   const unsigned *addr_indices,
+                                   const ucp_ep_config_key_t *key1,
                                    const ucp_ep_config_key_t *key2,
-                                   const ucp_rsc_index_t *dst_rsc_indices2,
                                    ucp_lane_index_t *lane_map);
 
 int ucp_ep_config_is_equal(const ucp_ep_config_key_t *key1,
