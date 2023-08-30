@@ -1349,11 +1349,31 @@ public:
     }
 
 protected:
+    static int
+    is_dst_index_match(ucp_rsc_index_t dst_index1, ucp_rsc_index_t dst_index2)
+    {
+        return (dst_index1 == UCP_NULL_RESOURCE) ||
+               (dst_index2 == UCP_NULL_RESOURCE) || (dst_index1 == dst_index2);
+    }
+
+    static int
+    is_peer_match(const ucp_ep_config_key_t *key1, ucp_lane_index_t lane1,
+                  const ucp_ep_config_key_t *key2, ucp_lane_index_t lane2)
+    {
+        const ucp_ep_config_key_lane_t *config_lane1 = &key1->lanes[lane1];
+        const ucp_ep_config_key_lane_t *config_lane2 = &key2->lanes[lane2];
+
+        return (config_lane1->rsc_index == config_lane2->rsc_index) &&
+               (config_lane1->path_index == config_lane2->path_index) &&
+               is_dst_index_match(config_lane1->dst_md_index,
+                                  config_lane2->dst_md_index);
+    }
+
     static void cmp_cfg_lanes(ucp_ep_config_key_t *key1, ucp_lane_index_t lane1,
                               ucp_ep_config_key_t *key2, ucp_lane_index_t lane2) {
         EXPECT_TRUE(((lane1 == UCP_NULL_LANE) && (lane2 == UCP_NULL_LANE)) ||
                     ((lane1 != UCP_NULL_LANE) && (lane2 != UCP_NULL_LANE) &&
-                     ucp_ep_config_lane_is_peer_match(key1, lane1, key2, lane2)));
+                     is_peer_match(key1, lane1, key2, lane2)));
     }
 };
 

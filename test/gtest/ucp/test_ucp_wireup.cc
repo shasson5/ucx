@@ -1572,18 +1572,18 @@ public:
     }
 
 protected:
-    void tag_sendrecv(size_t size) {
+    void tag_sendrecv(size_t size, ucp_test_base::entity *e1,
+                      ucp_test_base::entity *e2)
+    {
         std::string send_data(size, 's');
         std::string recv_data(size, 'x');
 
         ucs_status_ptr_t sreq = ucp_tag_send_nb(
-                        sender().ep(0), &send_data[0], size,
-                        ucp_dt_make_contig(1), 1,
-                        (ucp_send_callback_t)ucs_empty_function);
+                e1->ep(), &send_data[0], size, ucp_dt_make_contig(1), 1,
+                (ucp_send_callback_t)ucs_empty_function);
         ucs_status_ptr_t rreq = ucp_tag_recv_nb(
-                        receiver().worker(), &recv_data[0], size,
-                        ucp_dt_make_contig(1), 1, 1,
-                        (ucp_tag_recv_callback_t)ucs_empty_function);
+                e2->worker(), &recv_data[0], size, ucp_dt_make_contig(1), 1, 1,
+                (ucp_tag_recv_callback_t)ucs_empty_function);
         request_wait(sreq);
         request_wait(rreq);
 
@@ -1614,9 +1614,9 @@ UCS_TEST_SKIP_COND_P(test_ucp_wireup_asymmetric, different_ppn_connect,
     ucp_ep_print_info(sender().ep(), stdout);
     ucp_ep_print_info(receiver().ep(), stdout);
 
-    tag_sendrecv(1);
-    tag_sendrecv(100000);
-    tag_sendrecv(1000000);
+    tag_sendrecv(1, &sender(), &receiver());
+    tag_sendrecv(100000, &sender(), &receiver());
+    tag_sendrecv(1000000, &sender(), &receiver());
 }
 
 UCP_INSTANTIATE_TEST_CASE(test_ucp_wireup_asymmetric)
@@ -1698,14 +1698,202 @@ UCS_TEST_SKIP_COND_P(test_ucp_wireup_asymmetric_ib, different_pci_bw_connect,
     ucp_ep_print_info(sender().ep(), stdout);
     ucp_ep_print_info(receiver().ep(), stdout);
 
-    tag_sendrecv(1);
-    tag_sendrecv(100000);
-    tag_sendrecv(1000000);
+    tag_sendrecv(1, &sender(), &receiver());
+    tag_sendrecv(100000, &sender(), &receiver());
+    tag_sendrecv(1000000, &sender(), &receiver());
 }
 
 UCP_INSTANTIATE_TEST_CASE_TLS(test_ucp_wireup_asymmetric_ib, rcv, "rc_v")
 UCP_INSTANTIATE_TEST_CASE_TLS(test_ucp_wireup_asymmetric_ib, rcx, "rc_x")
 UCP_INSTANTIATE_TEST_CASE_TLS(test_ucp_wireup_asymmetric_ib, ib, "ib")
+
+class test_ucp_wireup_reconfigure : public test_ucp_wireup_asymmetric_ib {
+protected:
+    void verify_transport(ucp_test_base::entity *ep, const std::string &tl_name)
+    {
+        const ucp_ep_config_t *config = ucp_ep_config(ep->ep());
+
+        for (int i = 0; i < config->key.num_lanes; ++i) {
+            const auto lane = config->key.rma_bw_lanes[i];
+
+            if (lane == UCP_NULL_LANE) {
+                break;
+            }
+
+            const char *transport = ucp_ep_get_tl_rsc(ep->ep(), lane)->tl_name;
+            ASSERT_STREQ(transport, tl_name.c_str());
+        }
+    }
+
+public:
+    static void get_test_variants(std::vector<ucp_test_variant> &variants)
+    {
+        add_variant(variants, UCP_FEATURE_TAG);
+    }
+};
+
+UCS_TEST_SKIP_COND_P(test_ucp_wireup_reconfigure, race_no_reuse, is_self())
+{
+    modify_config("NUM_EPS", ucs::to_string(128).c_str());
+    entity *e1 = create_entity();
+
+    modify_config("NUM_EPS", ucs::to_string(1).c_str());
+    entity *e2 = create_entity();
+
+    e1->connect(e2, get_ep_params());
+    e2->connect(e1, get_ep_params());
+
+    printf("Before\n");
+    printf("================\n");
+    ucp_ep_print_info(e1->ep(), stdout);
+    verify_transport(e1, "dc_mlx5");
+
+    tag_sendrecv(1, e1, e2);
+    tag_sendrecv(100000, e1, e2);
+    tag_sendrecv(1000000, e1, e2);
+
+    printf("After\n");
+    printf("================\n");
+    ucp_ep_print_info(e1->ep(), stdout);
+    verify_transport(e1, "rc_mlx5");
+}
+
+UCS_TEST_SKIP_COND_P(test_ucp_wireup_reconfigure, race_all_reuse, is_self())
+{
+    entity *e1 = create_entity();
+    entity *e2 = create_entity();
+
+    e1->connect(e2, get_ep_params());
+    e2->connect(e1, get_ep_params());
+
+    printf("Before\n");
+    printf("================\n");
+    ucp_ep_print_info(e1->ep(), stdout);
+    verify_transport(e1, "rc_mlx5");
+
+    tag_sendrecv(1, e1, e2);
+    tag_sendrecv(100000, e1, e2);
+    tag_sendrecv(1000000, e1, e2);
+
+    printf("After\n");
+    printf("================\n");
+    ucp_ep_print_info(e1->ep(), stdout);
+    verify_transport(e1, "rc_mlx5");
+}
+
+UCS_TEST_SKIP_COND_P(test_ucp_wireup_reconfigure, serial_no_reuse_rc_to_dc,
+                     is_self())
+{
+    entity *e1 = create_entity();
+    entity *e2 = create_entity();
+
+    e1->connect(e2, get_ep_params());
+
+    tag_sendrecv(1, e1, e2);
+    tag_sendrecv(100000, e1, e2);
+    tag_sendrecv(1000000, e1, e2);
+
+    printf("Before\n");
+    printf("================\n");
+    ucp_ep_print_info(e1->ep(), stdout);
+    verify_transport(e1, "rc_mlx5");
+
+    e1->ucph()->config.est_num_eps = 128;
+    e2->ucph()->config.est_num_eps = 128;
+
+    UCS_ASYNC_BLOCK(&e1->worker()->async);
+    ucp_wireup_send_pre_request(e1->ep());
+    UCS_ASYNC_UNBLOCK(&e1->worker()->async);
+
+    while (!(e1->ep()->flags & UCP_EP_FLAG_REMOTE_CONNECTED)) {
+        progress();
+    }
+
+    tag_sendrecv(1, e1, e2);
+    tag_sendrecv(100000, e1, e2);
+    tag_sendrecv(1000000, e1, e2);
+
+    printf("After\n");
+    printf("================\n");
+    ucp_ep_print_info(e1->ep(), stdout);
+    verify_transport(e1, "dc_mlx5");
+}
+
+UCS_TEST_SKIP_COND_P(test_ucp_wireup_reconfigure, serial_no_reuse_dc_to_rc,
+                     is_self())
+{
+    modify_config("NUM_EPS", ucs::to_string(128).c_str());
+    entity *e1 = create_entity();
+    entity *e2 = create_entity();
+
+    e1->connect(e2, get_ep_params());
+
+    tag_sendrecv(1, e1, e2);
+    tag_sendrecv(100000, e1, e2);
+    tag_sendrecv(1000000, e1, e2);
+
+    printf("Before\n");
+    printf("================\n");
+    ucp_ep_print_info(e1->ep(), stdout);
+    verify_transport(e1, "dc_mlx5");
+
+    e1->ucph()->config.est_num_eps = 1;
+    e2->ucph()->config.est_num_eps = 1;
+
+    UCS_ASYNC_BLOCK(&e1->worker()->async);
+    ucp_wireup_send_pre_request(e1->ep());
+    UCS_ASYNC_UNBLOCK(&e1->worker()->async);
+
+    while (!(e1->ep()->flags & UCP_EP_FLAG_REMOTE_CONNECTED)) {
+        progress();
+    }
+
+    tag_sendrecv(1, e1, e2);
+    tag_sendrecv(100000, e1, e2);
+    tag_sendrecv(1000000, e1, e2);
+
+    printf("After\n");
+    printf("================\n");
+    ucp_ep_print_info(e1->ep(), stdout);
+    verify_transport(e1, "rc_mlx5");
+}
+
+UCS_TEST_SKIP_COND_P(test_ucp_wireup_reconfigure, serial_all_reuse, is_self())
+{
+    entity *e1 = create_entity();
+    entity *e2 = create_entity();
+
+    e1->connect(e2, get_ep_params());
+
+    tag_sendrecv(1, e1, e2);
+    tag_sendrecv(100000, e1, e2);
+    tag_sendrecv(1000000, e1, e2);
+
+    printf("Before\n");
+    printf("================\n");
+    ucp_ep_print_info(e1->ep(), stdout);
+    verify_transport(e1, "rc_mlx5");
+
+    UCS_ASYNC_BLOCK(&e1->worker()->async);
+    ucp_wireup_send_pre_request(e1->ep());
+    UCS_ASYNC_UNBLOCK(&e1->worker()->async);
+
+    while (!(e1->ep()->flags & UCP_EP_FLAG_REMOTE_CONNECTED)) {
+        progress();
+    }
+
+    tag_sendrecv(1, e1, e2);
+    tag_sendrecv(100000, e1, e2);
+    tag_sendrecv(1000000, e1, e2);
+
+    printf("After\n");
+    printf("================\n");
+    ucp_ep_print_info(e1->ep(), stdout);
+    verify_transport(e1, "rc_mlx5");
+}
+
+
+UCP_INSTANTIATE_TEST_CASE_TLS(test_ucp_wireup_reconfigure, ib, "ib")
 
 class test_ucp_wireup_keepalive : public test_ucp_wireup {
 public:
