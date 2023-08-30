@@ -32,7 +32,7 @@ ucs_status_t ucs_lru_create(size_t capacity, ucs_lru_h *lru_p)
         goto err;
     }
 
-    kh_init_inplace(ucs_lru_hash, &lru->hash);
+    kh_init_no_shrink(ucs_lru_hash, &lru->hash);
 
     /* Resize the cache to the required capacity. Need to allocate extra space
      * in order to avoid collisions in the hash table. */

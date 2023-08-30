@@ -211,11 +211,13 @@ static const double __ac_HASH_UPPER = 0.77;
 		khint32_t *flags; \
 		khkey_t *keys; \
 		khval_t *vals; \
+		int      no_shrink; \
 	} kh_##name##_t;
 
 #define __KHASH_PROTOTYPES(name, khkey_t, khval_t)	 					\
 	extern kh_##name##_t *kh_init_##name(void);							\
     extern kh_##name##_t *kh_init_##name##_inplace(kh_##name##_t *h);   \
+    extern void kh_init_##name##_no_shrink(kh_##name##_t *h);   \
 	extern void kh_destroy_##name(kh_##name##_t *h);					\
     extern void kh_destroy_##name##_inplace(kh_##name##_t *h);          \
 	extern void kh_clear_##name(kh_##name##_t *h);						\
@@ -230,7 +232,11 @@ static const double __ac_HASH_UPPER = 0.77;
 	}																	\
     SCOPE kh_##name##_t *kh_init_##name##_inplace(kh_##name##_t *h) {   \
         return (kh_##name##_t*)kmemset(h, 0, sizeof(kh_##name##_t));    \
-    }                                                                   \
+    } \
+    SCOPE void kh_init_##name##_no_shrink(kh_##name##_t *h) {   \
+        kmemset(h, 0, sizeof(kh_##name##_t));    \
+        h->no_shrink = 1;    \
+    }    \
 	SCOPE void kh_destroy_##name(kh_##name##_t *h)						\
 	{																	\
 		if (h) {														\
@@ -338,10 +344,12 @@ static const double __ac_HASH_UPPER = 0.77;
 	{																	\
 		khint_t x;														\
 		if (h->n_occupied >= h->upper_bound) { /* update the hash table */ \
-			if (h->n_buckets > (h->size<<1)) {							\
-				if (kh_resize_##name(h, h->n_buckets - 1) < 0) { /* clear "deleted" elements */ \
-					*ret = -1; return h->n_buckets;						\
-				}														\
+			if (h->n_buckets > (h->size<<1)) {  \
+			    if (!h->no_shrink) {\
+			        if (kh_resize_##name(h, h->n_buckets - 1) < 0) { /* clear "deleted" elements */ \
+					    *ret = -1; return h->n_buckets;						\
+			        } \
+			    }\
 			} else if (kh_resize_##name(h, h->n_buckets + 1) < 0) { /* expand the hash table */ \
 				*ret = -1; return h->n_buckets;							\
 			}															\
@@ -491,6 +499,13 @@ static kh_inline khint_t __ac_Wang_hash(khint_t key)
   @param  h     Pointer to the hash table [khash_t(name)*]
  */
 #define kh_init_inplace(name, h) kh_init_##name##_inplace(h)
+
+/*! @function
+  @abstract     Initiate a hash table with shrink disabled.
+  @param  name  Name of the hash table [symbol]
+  @param  h     Pointer to the hash table [khash_t(name)*]
+ */
+#define kh_init_no_shrink(name, h) kh_init_##name##_no_shrink(h)
 
 /*! @function
   @abstract     Destroy a hash table.

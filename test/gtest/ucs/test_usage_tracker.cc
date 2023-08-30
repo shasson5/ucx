@@ -15,10 +15,7 @@ protected:
     virtual void init()
     {
         ucs::test::init();
-        ASSERT_UCS_OK(ucs_usage_tracker_create(m_ticks_per_flush, m_max_lru,
-                                               m_active_thresh,
-                                               m_stability_diff, flush_cb,
-                                               &m_results, &m_usage_tracker));
+        ASSERT_UCS_OK(ucs_usage_tracker_create(&m_params, &m_usage_tracker));
     }
 
     virtual void cleanup()
@@ -60,25 +57,21 @@ protected:
         m_results.clear();
     }
 
-    const double m_active_thresh      = 0.2;
-    const size_t m_ticks_per_flush    = 30;
-    const unsigned m_stability_diff   = 4;
-    static constexpr size_t m_max_lru = 10;
+    const ucs_usage_tracker_params_t m_params = {30, 10, 0.2, 4, flush_cb,
+                                                 &m_results};
     std::vector<uint64_t> m_results;
     ucs_usage_tracker_h m_usage_tracker;
 };
 
-constexpr size_t test_usage_tracker::m_max_lru;
-
 UCS_TEST_F(test_usage_tracker, basic) {
     std::vector<uint64_t> elements1;
-    for (int i = 0; i < m_max_lru; ++i) {
+    for (int i = 0; i < m_params.active_capacity; ++i) {
         elements1.push_back(i);
     }
 
     const unsigned hits1 = 10;
 
-    tick(m_ticks_per_flush - hits1);
+    tick(m_params.ticks_per_flush - hits1);
     add(elements1);
     tick(hits1);
     verify(elements1);
@@ -86,25 +79,25 @@ UCS_TEST_F(test_usage_tracker, basic) {
 
 UCS_TEST_F(test_usage_tracker, stability_no_change) {
     std::vector<uint64_t> elements1;
-    for (int i = 0; i < m_max_lru; ++i) {
+    for (int i = 0; i < m_params.active_capacity; ++i) {
         elements1.push_back(i);
     }
 
     const unsigned hits1 = 10;
 
-    tick(m_ticks_per_flush - hits1);
+    tick(m_params.ticks_per_flush - hits1);
     add(elements1);
     tick(hits1);
     verify(elements1);
 
     std::vector<uint64_t> elements2;
-    for (int i = 0; i < m_max_lru; ++i) {
-        elements2.push_back(i + m_max_lru);
+    for (int i = 0; i < m_params.active_capacity; ++i) {
+        elements2.push_back(i + m_params.active_capacity);
     }
 
-    const unsigned hits2 = hits1 + m_stability_diff;
+    const unsigned hits2 = hits1 + m_params.eject_thresh;
 
-    tick(m_ticks_per_flush - hits1 - hits2);
+    tick(m_params.ticks_per_flush - hits1 - hits2);
     add(elements1);
     tick(hits1);
 
@@ -115,25 +108,25 @@ UCS_TEST_F(test_usage_tracker, stability_no_change) {
 
 UCS_TEST_F(test_usage_tracker, stability_change) {
     std::vector<uint64_t> elements1;
-    for (int i = 0; i < m_max_lru; ++i) {
+    for (int i = 0; i < m_params.active_capacity; ++i) {
         elements1.push_back(i);
     }
 
     const unsigned hits1 = 10;
 
-    tick(m_ticks_per_flush - hits1);
+    tick(m_params.ticks_per_flush - hits1);
     add(elements1);
     tick(hits1);
     verify(elements1);
 
     std::vector<uint64_t> elements2;
-    for (int i = 0; i < m_max_lru; ++i) {
-        elements2.push_back(i + m_max_lru);
+    for (int i = 0; i < m_params.active_capacity; ++i) {
+        elements2.push_back(i + m_params.active_capacity);
     }
 
-    const unsigned hits2 = hits1 + m_stability_diff + 1;
+    const unsigned hits2 = hits1 + m_params.eject_thresh + 1;
 
-    tick(m_ticks_per_flush - hits1 - hits2);
+    tick(m_params.ticks_per_flush - hits1 - hits2);
     add(elements1);
     tick(hits1);
 
@@ -144,13 +137,13 @@ UCS_TEST_F(test_usage_tracker, stability_change) {
 
 UCS_TEST_F(test_usage_tracker, below_active_thresh) {
     std::vector<uint64_t> elements1;
-    for (int i = 0; i < m_max_lru; ++i) {
+    for (int i = 0; i < m_params.active_capacity; ++i) {
         elements1.push_back(i);
     }
 
-    unsigned hits = m_active_thresh * m_ticks_per_flush;
+    unsigned hits = m_params.active_thresh * m_params.ticks_per_flush;
 
-    tick(m_ticks_per_flush - hits);
+    tick(m_params.ticks_per_flush - hits);
     add(elements1);
     tick(hits);
 
