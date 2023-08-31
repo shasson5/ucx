@@ -32,14 +32,6 @@ ucs_status_t ucs_lru_create(size_t capacity, ucs_lru_h *lru_p)
     }
 
     kh_init_inplace(ucs_lru_hash, &lru->hash);
-
-    /* Resize the cache to the required capacity. Need to allocate extra space
-     * in order to avoid collisions in the hash table. */
-    if (kh_resize(ucs_lru_hash, &lru->hash, capacity * 2) < 0) {
-        status = UCS_ERR_NO_MEMORY;
-        goto err_free;
-    }
-
     ucs_list_head_init(&lru->list);
 
     lru->capacity = capacity;
@@ -66,7 +58,6 @@ void ucs_lru_reset(ucs_lru_h lru)
     kh_foreach_value(&lru->hash, item,
         ucs_free(item);
     )
-
     ucs_list_head_init(&lru->list);
     kh_clear(ucs_lru_hash, &lru->hash);
 }

@@ -44,8 +44,8 @@ typedef struct {
     /* Min percent of max hit count (ticks_per_flush) in order to consider an
      * entry 'active' */
     double                       active_thresh;
-    /* Min hit count difference in order to eject an entry from active list */
-    unsigned                     eject_thresh;
+    /* Min hit count difference in order to remove an entry from active list */
+    unsigned                     remove_thresh;
     /* User callback which will be called when new data is flushed. */
     ucs_usage_tracker_flush_cb_t flush_cb;
     /* User object which will be passed to flush callback. */
@@ -84,12 +84,12 @@ typedef struct ucs_usage_tracker *ucs_usage_tracker_h;
  * We sample the LRU several times and sum up the hit count of each entry.
  * After a predefined amount of samples, we flush the results to the 'active
  * list', which contains the most active entries over time.
- * If no room is left on the active list, the most inactive entries will be
- * ejected.
+ * If no room is left on the active list, the least active entries will be
+ * removed.
  *
- * @param [in]    params           usage tracker params.
- * @param [out] usage_tracker_p    Pointer to the Usage Tracker struct. Filled
- *                                 with a Usage Tracker handle.
+ * @param [in]  params           usage tracker params.
+ * @param [out] usage_tracker_p  Pointer to the Usage Tracker struct. Filled
+ *                               with a Usage Tracker handle.
  *
  * @return UCS_OK if successful, or an error code as defined by
  * @ref ucs_status_t otherwise.
@@ -119,21 +119,13 @@ void ucs_usage_tracker_tick(ucs_usage_tracker_h usage_tracker);
 
 
 /**
- * @brief Get most active entries.
- *
- * @param [in]  usage_tracker  Handle to the Usage Tracker object.
- * @param [out] state          Filled with a list of most active entries.
- */
-
-
-/**
  * @brief Update an entry with min score.
  *
  * @param [in]  usage_tracker  Handle to the Usage Tracker object.
  * @param [in]  key            Key to insert.
  * @param [in]  score          Min score of the entry.
  *
- * @return Ejected entry in case there is no room in the active list, or NULL
+ * @return removed entry in case there is no room in the active list, or NULL
  * otherwise.
  */
 void *ucs_usage_tracker_push_min_score(ucs_usage_tracker_h usage_tracker,

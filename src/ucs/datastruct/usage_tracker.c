@@ -25,7 +25,7 @@ ucs_status_t ucs_usage_tracker_create(const ucs_usage_tracker_params_t *params,
         goto err;
     }
 
-    usage_tracker = ucs_calloc(1, sizeof(*usage_tracker), "ucs_usage_tracker");
+    usage_tracker = ucs_malloc(sizeof(*usage_tracker), "ucs_usage_tracker");
     if (usage_tracker == NULL) {
         ucs_error("failed to allocate usage tracker");
         status = UCS_ERR_NO_MEMORY;
@@ -121,11 +121,9 @@ ucs_usage_tracker_get_active_count(ucs_usage_tracker_h usage_tracker)
         iter = kh_get(usage_tracker_hash, &usage_tracker->hash, key);
         item = &kh_val(&usage_tracker->hash, iter);
 
-        if (!item->active) {
-            continue;
-        }
+        if (item->active) { ++active_count; }
 
-        active_count++;
+
     )
 
     return active_count;
@@ -146,7 +144,6 @@ ucs_usage_tracker_get_min_active(ucs_usage_tracker_h usage_tracker)
     kh_foreach_key(&usage_tracker->hash, key,
         iter = kh_get(usage_tracker_hash, &usage_tracker->hash, key);
         item = &kh_val(&usage_tracker->hash, iter);
-
         if (!item->active) {
             continue;
         }
@@ -161,7 +158,7 @@ ucs_usage_tracker_get_min_active(ucs_usage_tracker_h usage_tracker)
     return (active_count == params->active_capacity) ? min_item : NULL;
 }
 
-/* Insert a new entry to the active list and possibly eject the entry with
+/* Insert a new entry to the active list and possibly remove the entry with
  * the lowest score. */
 static ucs_usage_tracker_element_t *
 ucs_usage_tracker_pushpop_active(ucs_usage_tracker_h usage_tracker,
@@ -196,17 +193,17 @@ ucs_usage_tracker_remove(ucs_usage_tracker_h usage_tracker, void *key)
 void *ucs_usage_tracker_push_min_score(ucs_usage_tracker_h usage_tracker,
                                        void *key, size_t score)
 {
-    ucs_usage_tracker_element_t *element, *ejected;
+    ucs_usage_tracker_element_t *element, *removed;
 
     element            = ucs_usage_tracker_put(usage_tracker, key);
     element->min_score = score;
-    ejected            = NULL;
+    removed            = NULL;
 
     if (!element->active) {
-        ejected = ucs_usage_tracker_pushpop_active(usage_tracker, element);
+        removed = ucs_usage_tracker_pushpop_active(usage_tracker, element);
     }
 
-    return ejected;
+    return removed;
 }
 
 /* Checks if an entry has high enough score to enter the active list. */
@@ -225,7 +222,7 @@ ucs_usage_tracker_is_important(ucs_usage_tracker_h usage_tracker, size_t score)
         return 1;
     }
 
-    return (score - ucs_usage_tracker_score(min_item)) > params->eject_thresh;
+    return (score - ucs_usage_tracker_score(min_item)) > params->remove_thresh;
 }
 
 /* Update entry's score from last hit count and reset hit count */

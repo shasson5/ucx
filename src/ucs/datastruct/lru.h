@@ -106,7 +106,7 @@ static UCS_F_ALWAYS_INLINE void ucs_lru_push(ucs_lru_h lru, void *key)
     } else if (kh_size(&lru->hash) > lru->capacity) {
         *elem_p = ucs_lru_pop(lru);
     } else {
-        *elem_p = (ucs_lru_element_t*)ucs_calloc(1, sizeof(**elem_p),
+        *elem_p = (ucs_lru_element_t*)ucs_malloc(sizeof(**elem_p),
                                                  "ucs_lru_element");
     }
 
