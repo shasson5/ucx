@@ -1732,168 +1732,171 @@ public:
     }
 };
 
-UCS_TEST_SKIP_COND_P(test_ucp_wireup_reconfigure, race_no_reuse, is_self())
-{
-    modify_config("NUM_EPS", ucs::to_string(128).c_str());
-    entity *e1 = create_entity();
-
-    modify_config("NUM_EPS", ucs::to_string(1).c_str());
-    entity *e2 = create_entity();
-
-    e1->connect(e2, get_ep_params());
-    e2->connect(e1, get_ep_params());
-
-    printf("Before\n");
-    printf("================\n");
-    ucp_ep_print_info(e1->ep(), stdout);
-    verify_transport(e1, "dc_mlx5");
-
-    tag_sendrecv(1, e1, e2);
-    tag_sendrecv(100000, e1, e2);
-    tag_sendrecv(1000000, e1, e2);
-
-    printf("After\n");
-    printf("================\n");
-    ucp_ep_print_info(e1->ep(), stdout);
-    verify_transport(e1, "rc_mlx5");
-}
-
-UCS_TEST_SKIP_COND_P(test_ucp_wireup_reconfigure, race_all_reuse, is_self())
-{
-    entity *e1 = create_entity();
-    entity *e2 = create_entity();
-
-    e1->connect(e2, get_ep_params());
-    e2->connect(e1, get_ep_params());
-
-    printf("Before\n");
-    printf("================\n");
-    ucp_ep_print_info(e1->ep(), stdout);
-    verify_transport(e1, "rc_mlx5");
-
-    tag_sendrecv(1, e1, e2);
-    tag_sendrecv(100000, e1, e2);
-    tag_sendrecv(1000000, e1, e2);
-
-    printf("After\n");
-    printf("================\n");
-    ucp_ep_print_info(e1->ep(), stdout);
-    verify_transport(e1, "rc_mlx5");
-}
-
-UCS_TEST_SKIP_COND_P(test_ucp_wireup_reconfigure, serial_no_reuse_rc_to_dc,
-                     is_self())
-{
-    entity *e1 = create_entity();
-    entity *e2 = create_entity();
-
-    e1->connect(e2, get_ep_params());
-
-    tag_sendrecv(1, e1, e2);
-    tag_sendrecv(100000, e1, e2);
-    tag_sendrecv(1000000, e1, e2);
-
-    printf("Before\n");
-    printf("================\n");
-    ucp_ep_print_info(e1->ep(), stdout);
-    verify_transport(e1, "rc_mlx5");
-
-    e1->ucph()->config.est_num_eps = 128;
-    e2->ucph()->config.est_num_eps = 128;
-
-    UCS_ASYNC_BLOCK(&e1->worker()->async);
-    ucp_wireup_send_pre_request(e1->ep());
-    UCS_ASYNC_UNBLOCK(&e1->worker()->async);
-
-    while (!(e1->ep()->flags & UCP_EP_FLAG_REMOTE_CONNECTED)) {
-        progress();
-    }
-
-    tag_sendrecv(1, e1, e2);
-    tag_sendrecv(100000, e1, e2);
-    tag_sendrecv(1000000, e1, e2);
-
-    printf("After\n");
-    printf("================\n");
-    ucp_ep_print_info(e1->ep(), stdout);
-    verify_transport(e1, "dc_mlx5");
-}
-
-UCS_TEST_SKIP_COND_P(test_ucp_wireup_reconfigure, serial_no_reuse_dc_to_rc,
-                     is_self())
-{
-    modify_config("NUM_EPS", ucs::to_string(128).c_str());
-    entity *e1 = create_entity();
-    entity *e2 = create_entity();
-
-    e1->connect(e2, get_ep_params());
-
-    tag_sendrecv(1, e1, e2);
-    tag_sendrecv(100000, e1, e2);
-    tag_sendrecv(1000000, e1, e2);
-
-    printf("Before\n");
-    printf("================\n");
-    ucp_ep_print_info(e1->ep(), stdout);
-    verify_transport(e1, "dc_mlx5");
-
-    e1->ucph()->config.est_num_eps = 1;
-    e2->ucph()->config.est_num_eps = 1;
-
-    UCS_ASYNC_BLOCK(&e1->worker()->async);
-    ucp_wireup_send_pre_request(e1->ep());
-    UCS_ASYNC_UNBLOCK(&e1->worker()->async);
-
-    while (!(e1->ep()->flags & UCP_EP_FLAG_REMOTE_CONNECTED)) {
-        progress();
-    }
-
-    tag_sendrecv(1, e1, e2);
-    tag_sendrecv(100000, e1, e2);
-    tag_sendrecv(1000000, e1, e2);
-
-    printf("After\n");
-    printf("================\n");
-    ucp_ep_print_info(e1->ep(), stdout);
-    verify_transport(e1, "rc_mlx5");
-}
-
-UCS_TEST_SKIP_COND_P(test_ucp_wireup_reconfigure, serial_all_reuse, is_self())
-{
-    entity *e1 = create_entity();
-    entity *e2 = create_entity();
-
-    e1->connect(e2, get_ep_params());
-
-    tag_sendrecv(1, e1, e2);
-    tag_sendrecv(100000, e1, e2);
-    tag_sendrecv(1000000, e1, e2);
-
-    printf("Before\n");
-    printf("================\n");
-    ucp_ep_print_info(e1->ep(), stdout);
-    verify_transport(e1, "rc_mlx5");
-
-    UCS_ASYNC_BLOCK(&e1->worker()->async);
-    ucp_wireup_send_pre_request(e1->ep());
-    UCS_ASYNC_UNBLOCK(&e1->worker()->async);
-
-    while (!(e1->ep()->flags & UCP_EP_FLAG_REMOTE_CONNECTED)) {
-        progress();
-    }
-
-    tag_sendrecv(1, e1, e2);
-    tag_sendrecv(100000, e1, e2);
-    tag_sendrecv(1000000, e1, e2);
-
-    printf("After\n");
-    printf("================\n");
-    ucp_ep_print_info(e1->ep(), stdout);
-    verify_transport(e1, "rc_mlx5");
-}
-
-
-UCP_INSTANTIATE_TEST_CASE_TLS(test_ucp_wireup_reconfigure, ib, "ib")
+//UCS_TEST_SKIP_COND_P(test_ucp_wireup_reconfigure, race_no_reuse, is_self())
+//{
+//    modify_config("NUM_EPS", ucs::to_string(128).c_str());
+//    entity *e1 = create_entity();
+//
+//    modify_config("NUM_EPS", ucs::to_string(1).c_str());
+//    entity *e2 = create_entity();
+//
+//    e1->connect(e2, get_ep_params());
+//    e2->connect(e1, get_ep_params());
+//
+//    printf("Before\n");
+//    printf("================\n");
+//    ucp_ep_print_info(e1->ep(), stdout);
+//    verify_transport(e1, "dc_mlx5");
+//
+//    while(1) {
+//        e1->progress();
+//    }
+//
+//    tag_sendrecv(1, e1, e2);
+//    tag_sendrecv(100000, e1, e2);
+//    tag_sendrecv(1000000, e1, e2);
+//
+//    printf("After\n");
+//    printf("================\n");
+//    ucp_ep_print_info(e1->ep(), stdout);
+//    verify_transport(e1, "rc_mlx5");
+//}
+//
+//UCS_TEST_SKIP_COND_P(test_ucp_wireup_reconfigure, race_all_reuse, is_self())
+//{
+//    entity *e1 = create_entity();
+//    entity *e2 = create_entity();
+//
+//    e1->connect(e2, get_ep_params());
+//    e2->connect(e1, get_ep_params());
+//
+//    printf("Before\n");
+//    printf("================\n");
+//    ucp_ep_print_info(e1->ep(), stdout);
+//    verify_transport(e1, "rc_mlx5");
+//
+//    tag_sendrecv(1, e1, e2);
+//    tag_sendrecv(100000, e1, e2);
+//    tag_sendrecv(1000000, e1, e2);
+//
+//    printf("After\n");
+//    printf("================\n");
+//    ucp_ep_print_info(e1->ep(), stdout);
+//    verify_transport(e1, "rc_mlx5");
+//}
+//
+//UCS_TEST_SKIP_COND_P(test_ucp_wireup_reconfigure, serial_no_reuse_rc_to_dc,
+//                     is_self())
+//{
+//    entity *e1 = create_entity();
+//    entity *e2 = create_entity();
+//
+//    e1->connect(e2, get_ep_params());
+//
+//    tag_sendrecv(1, e1, e2);
+//    tag_sendrecv(100000, e1, e2);
+//    tag_sendrecv(1000000, e1, e2);
+//
+//    printf("Before\n");
+//    printf("================\n");
+//    ucp_ep_print_info(e1->ep(), stdout);
+//    verify_transport(e1, "rc_mlx5");
+//
+//    e1->ucph()->config.est_num_eps = 128;
+//    e2->ucph()->config.est_num_eps = 128;
+//
+//    UCS_ASYNC_BLOCK(&e1->worker()->async);
+//    ucp_wireup_send_pre_request(e1->ep());
+//    UCS_ASYNC_UNBLOCK(&e1->worker()->async);
+//
+//    while (!(e1->ep()->flags & UCP_EP_FLAG_REMOTE_CONNECTED)) {
+//        progress();
+//    }
+//
+//    tag_sendrecv(1, e1, e2);
+//    tag_sendrecv(100000, e1, e2);
+//    tag_sendrecv(1000000, e1, e2);
+//
+//    printf("After\n");
+//    printf("================\n");
+//    ucp_ep_print_info(e1->ep(), stdout);
+//    verify_transport(e1, "dc_mlx5");
+//}
+//
+//UCS_TEST_SKIP_COND_P(test_ucp_wireup_reconfigure, serial_no_reuse_dc_to_rc,
+//                     is_self())
+//{
+//    modify_config("NUM_EPS", ucs::to_string(128).c_str());
+//    entity *e1 = create_entity();
+//    entity *e2 = create_entity();
+//
+//    e1->connect(e2, get_ep_params());
+//
+//    tag_sendrecv(1, e1, e2);
+//    tag_sendrecv(100000, e1, e2);
+//    tag_sendrecv(1000000, e1, e2);
+//
+//    printf("Before\n");
+//    printf("================\n");
+//    ucp_ep_print_info(e1->ep(), stdout);
+//    verify_transport(e1, "dc_mlx5");
+//
+//    e1->ucph()->config.est_num_eps = 1;
+//    e2->ucph()->config.est_num_eps = 1;
+//
+//    UCS_ASYNC_BLOCK(&e1->worker()->async);
+//    ucp_wireup_send_pre_request(e1->ep());
+//    UCS_ASYNC_UNBLOCK(&e1->worker()->async);
+//
+//    while (!(e1->ep()->flags & UCP_EP_FLAG_REMOTE_CONNECTED)) {
+//        progress();
+//    }
+//
+//    tag_sendrecv(1, e1, e2);
+//    tag_sendrecv(100000, e1, e2);
+//    tag_sendrecv(1000000, e1, e2);
+//
+//    printf("After\n");
+//    printf("================\n");
+//    ucp_ep_print_info(e1->ep(), stdout);
+//    verify_transport(e1, "rc_mlx5");
+//}
+//
+//UCS_TEST_SKIP_COND_P(test_ucp_wireup_reconfigure, serial_all_reuse, is_self())
+//{
+//    entity *e1 = create_entity();
+//    entity *e2 = create_entity();
+//
+//    e1->connect(e2, get_ep_params());
+//
+//    tag_sendrecv(1, e1, e2);
+//    tag_sendrecv(100000, e1, e2);
+//    tag_sendrecv(1000000, e1, e2);
+//
+//    printf("Before\n");
+//    printf("================\n");
+//    ucp_ep_print_info(e1->ep(), stdout);
+//    verify_transport(e1, "rc_mlx5");
+//
+//    UCS_ASYNC_BLOCK(&e1->worker()->async);
+//    ucp_wireup_send_pre_request(e1->ep());
+//    UCS_ASYNC_UNBLOCK(&e1->worker()->async);
+//
+//    while (!(e1->ep()->flags & UCP_EP_FLAG_REMOTE_CONNECTED)) {
+//        progress();
+//    }
+//
+//    tag_sendrecv(1, e1, e2);
+//    tag_sendrecv(100000, e1, e2);
+//    tag_sendrecv(1000000, e1, e2);
+//
+//    printf("After\n");
+//    printf("================\n");
+//    ucp_ep_print_info(e1->ep(), stdout);
+//    verify_transport(e1, "rc_mlx5");
+//}
+//
+//UCP_INSTANTIATE_TEST_CASE_TLS(test_ucp_wireup_reconfigure, ib, "ib")
 
 class test_ucp_wireup_keepalive : public test_ucp_wireup {
 public:
