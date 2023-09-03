@@ -24,129 +24,107 @@ protected:
         ucs::test::cleanup();
     }
 
-    void tick(unsigned count)
-    {
-        for (size_t i = 0; i < count; ++i) {
-            ucs_usage_tracker_tick(m_usage_tracker);
-        }
-    }
-
     void add(const std::vector<uint64_t> &input)
     {
         for (auto &entry : input) {
-            ucs_usage_tracker_add(m_usage_tracker, (void*)entry);
+            ucs_usage_tracker_touch_key(m_usage_tracker, (void*)entry);
         }
     }
 
-    static void flush_cb(void *entry, void *opaque)
+    static void rank_cb(void *entry, void *arg)
     {
-        std::vector<uint64_t> *results = (std::vector<uint64_t>*)opaque;
+        std::vector<uint64_t> *results = (std::vector<uint64_t>*)arg;
         results->push_back((uint64_t)entry);
     }
 
-    void verify(const std::vector<uint64_t> &expected)
+    void verify_rank(const std::vector<uint64_t> &expected,
+                     const std::vector<uint64_t> &actual,
+                     const std::string &operation)
     {
-        ASSERT_EQ(m_results.size(), expected.size());
+        ASSERT_EQ(actual.size(), expected.size()) << operation;
 
         for (int i = 0; i < expected.size(); ++i) {
             ASSERT_TRUE(std::find(expected.begin(), expected.end(),
-                                  m_results[i]) != expected.end())
-                    << "index " << i << ", elem: " << m_results[i];
+                                  actual[i]) != expected.end())
+                    << "index " << i << ", elem: " << actual[i] << operation;
         }
-
-        m_results.clear();
     }
 
-    const ucs_usage_tracker_params_t m_params = {30, 10, 0.2, 4, flush_cb,
-                                                 &m_results};
-    std::vector<uint64_t> m_results;
+    void verify(const std::vector<uint64_t> &exp_promoted,
+                const std::vector<uint64_t> &exp_demoted)
+    {
+        verify_rank(exp_promoted, m_promoted, "promotion");
+        verify_rank(exp_demoted, m_demoted, "demotion");
+    }
+
+    ucs_usage_tracker_params_t m_params = {30, 10, 0.2, rank_cb,
+                                           &m_promoted, rank_cb,
+                                           &m_demoted, {0.8, 0.2}};
+    std::vector<uint64_t> m_promoted;
+    std::vector<uint64_t> m_demoted;
     ucs_usage_tracker_h m_usage_tracker;
 };
 
-UCS_TEST_F(test_usage_tracker, basic) {
-    std::vector<uint64_t> elements1;
-    for (int i = 0; i < m_params.active_capacity; ++i) {
-        elements1.push_back(i);
+UCS_TEST_F(test_usage_tracker, promote) {
+    std::vector<uint64_t> elements, promoted, demoted;
+
+    for (int i = 0; i < m_params.promote_capacity; ++i) {
+        elements.push_back(i);
     }
 
-    const unsigned hits1 = 10;
+    for (int i = 0; i < 10; ++i) {
+        ucs_usage_tracker_progress(m_usage_tracker);
+        add(elements);
+    }
 
-    tick(m_params.ticks_per_flush - hits1);
-    add(elements1);
-    tick(hits1);
-    verify(elements1);
+    promoted = {elements.begin(), elements.begin() + m_params.promote_thresh};
+    verify(promoted, demoted);
 }
 
-UCS_TEST_F(test_usage_tracker, stability_no_change) {
-    std::vector<uint64_t> elements1;
-    for (int i = 0; i < m_params.active_capacity; ++i) {
+UCS_TEST_F(test_usage_tracker, stability) {
+    ucs_usage_tracker_destroy(m_usage_tracker);
+    m_params.promote_capacity = 10;
+    ASSERT_UCS_OK(ucs_usage_tracker_create(&m_params, &m_usage_tracker));
+
+    std::vector<uint64_t> elements1, elements2, promoted, demoted;
+    for (int i = 0; i < m_params.promote_capacity; ++i) {
         elements1.push_back(i);
+        elements2.push_back(i + m_params.promote_capacity);
     }
 
-    const unsigned hits1 = 10;
-
-    tick(m_params.ticks_per_flush - hits1);
     add(elements1);
-    tick(hits1);
-    verify(elements1);
-
-    std::vector<uint64_t> elements2;
-    for (int i = 0; i < m_params.active_capacity; ++i) {
-        elements2.push_back(i + m_params.active_capacity);
-    }
-
-    const unsigned hits2 = hits1 + m_params.eject_thresh;
-
-    tick(m_params.ticks_per_flush - hits1 - hits2);
-    add(elements1);
-    tick(hits1);
+    ucs_usage_tracker_progress(m_usage_tracker);
 
     add(elements2);
-    tick(hits2);
-    verify(elements1);
+    ucs_usage_tracker_progress(m_usage_tracker);
+
+    promoted = {elements1.begin(), elements1.begin() + m_params.promote_thresh};
+    verify(promoted, demoted);
 }
 
-UCS_TEST_F(test_usage_tracker, stability_change) {
-    std::vector<uint64_t> elements1;
-    for (int i = 0; i < m_params.active_capacity; ++i) {
+UCS_TEST_F(test_usage_tracker, demote) {
+    ucs_usage_tracker_destroy(m_usage_tracker);
+    m_params.promote_capacity = 10;
+    ASSERT_UCS_OK(ucs_usage_tracker_create(&m_params, &m_usage_tracker));
+
+    std::vector<uint64_t> elements1, elements2, demoted, promoted;
+    for (int i = 0; i < m_params.promote_capacity; ++i) {
         elements1.push_back(i);
+        elements2.push_back(i + m_params.promote_capacity);
     }
 
-    const unsigned hits1 = 10;
-
-    tick(m_params.ticks_per_flush - hits1);
-    add(elements1);
-    tick(hits1);
-    verify(elements1);
-
-    std::vector<uint64_t> elements2;
-    for (int i = 0; i < m_params.active_capacity; ++i) {
-        elements2.push_back(i + m_params.active_capacity);
+    for (int i = 0; i < 5; ++i) {
+        ucs_usage_tracker_progress(m_usage_tracker);
+        add(elements1);
     }
 
-    const unsigned hits2 = hits1 + m_params.eject_thresh + 1;
-
-    tick(m_params.ticks_per_flush - hits1 - hits2);
-    add(elements1);
-    tick(hits1);
-
-    add(elements2);
-    tick(hits2);
-    verify(elements2);
-}
-
-UCS_TEST_F(test_usage_tracker, below_active_thresh) {
-    std::vector<uint64_t> elements1;
-    for (int i = 0; i < m_params.active_capacity; ++i) {
-        elements1.push_back(i);
+    for (int i = 0; i < 10; ++i) {
+        ucs_usage_tracker_progress(m_usage_tracker);
+        add(elements2);
     }
 
-    unsigned hits = m_params.active_thresh * m_params.ticks_per_flush;
-
-    tick(m_params.ticks_per_flush - hits);
-    add(elements1);
-    tick(hits);
-
-    std::vector<uint64_t> empty_vec;
-    verify(empty_vec);
+    demoted = {elements1.begin(), elements1.begin() + m_params.promote_thresh};
+    promoted = {demoted.begin(), demoted.end()};
+    promoted.insert(promoted.end(), elements2.begin(), elements2.end());
+    verify(promoted, demoted);
 }

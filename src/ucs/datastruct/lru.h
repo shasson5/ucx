@@ -84,6 +84,21 @@ static UCS_F_ALWAYS_INLINE ucs_lru_element_t *ucs_lru_pop(ucs_lru_h lru)
 
 
 /**
+ * @brief Checks if an entry exists in the LRU cache.
+ *
+ * @param [in] lru  Handle to the LRU cache.
+ * @param [in] key  Element's key.
+ *
+ * @return 1 if entry was found, 0 otherwise.
+ */
+static UCS_F_ALWAYS_INLINE int ucs_lru_has_entry(ucs_lru_h lru, void *key)
+{
+    return kh_get(ucs_lru_hash, &lru->hash, (uint64_t)key) !=
+           kh_end(&lru->hash);
+}
+
+
+/**
  * @brief Insert or update an element in the cache.
  *
  * @param [in] lru  Handle to the LRU cache.
