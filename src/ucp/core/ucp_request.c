@@ -725,6 +725,7 @@ ucs_status_t ucp_request_progress_wrapper(uct_pending_req_t *self)
 {
     ucp_request_t *req       = ucs_container_of(self, ucp_request_t, send.uct);
     const ucp_proto_t *proto = req->send.proto_config->proto;
+    ucp_worker_h worker      = req->send.ep->worker;
     uct_pending_callback_t progress_cb;
     ucs_status_t status;
 
@@ -745,6 +746,13 @@ ucs_status_t ucp_request_progress_wrapper(uct_pending_req_t *self)
     } else {
         ucp_trace_req(req, "progress protocol %s returned: %s", proto->name,
                       ucs_status_string(status));
+
+        if (worker->usage_tracker.enabled) {
+            ucs_usage_tracker_touch_key(worker->usage_tracker.handle, req->send.ep);
+            if (worker->usage_tracker.counter == 1000) {
+                worker->usage_tracker.enabled = 0;
+            }
+        }
     }
     ucs_log_indent(-1);
     return status;

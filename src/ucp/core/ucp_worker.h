@@ -21,6 +21,7 @@
 #include <ucs/datastruct/strided_alloc.h>
 #include <ucs/datastruct/conn_match.h>
 #include <ucs/datastruct/ptr_map.h>
+#include <ucs/datastruct/usage_tracker.h>
 #include <ucs/arch/bitops.h>
 
 #include <ucs/datastruct/array.inl>
@@ -361,6 +362,11 @@ typedef struct ucp_worker {
         /* Number of failed endpoints */
         uint64_t                     ep_failures;
     } counters;
+
+    struct {
+        ucs_usage_tracker_h          handle;
+        int                          enabled;
+    } usage_tracker;
 } ucp_worker_t;
 
 

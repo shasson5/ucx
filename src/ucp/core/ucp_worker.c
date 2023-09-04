@@ -2385,6 +2385,56 @@ static void ucp_worker_set_max_am_header(ucp_worker_h worker)
                             ucs_min(max_am_header, UINT32_MAX) : 0ul;
 }
 
+static void ucp_worker_progress_usage_tracker()
+{
+    ucs_time_t now;
+
+    now = ucs_get_time();
+    if (ucs_likely((now - worker->usage_tracker.last_round) <
+                   worker->usage_tracker.interval)) {
+        goto out;
+    }
+
+    worker->usage_tracker.enabled = 1;
+    ucs_usage_tracker_progress(worker->usage_tracker.handle);
+}
+
+static void promote_stub(void *entry, void *arg)
+{
+    printf("promote %p\n", entry);
+}
+
+static void demote_stub(void *entry, void *arg)
+{
+    printf("demote %p\n", entry);
+}
+
+static ucs_status_t ucp_worker_init_usage_tracker(ucp_worker_h worker)
+{
+    ucs_usage_tracker_params_t params;
+    ucs_status_t status;
+
+    params.promote_capacity = 20;
+    params.promote_thresh   = 10;
+    params.remove_thresh    = 0.2;
+    params.exp_decay.c      = 0.2;
+    params.exp_decay.m      = 0.8;
+    params.promote_cb       = promote_stub;
+    params.demote_cb        = demote_stub;
+
+    status = ucs_usage_tracker_create(&params, &worker->usage_tracker.handle);
+    if (status != UCS_OK) {
+        return status;
+    }
+
+    worker->usage_tracker.enabled = 0;
+    uct_worker_progress_register_safe(worker->uct,
+                                    ucp_worker_progress_usage_tracker, worker, 0,
+                                    &worker->usage_tracker.cb_id);
+
+    return UCS_OK;
+}
+
 ucs_status_t ucp_worker_create(ucp_context_h context,
                                const ucp_worker_params_t *params,
                                ucp_worker_h *worker_p)
@@ -2583,9 +2633,16 @@ ucs_status_t ucp_worker_create(ucp_context_h context,
 
     ucp_worker_create_vfs(context, worker);
 
+    status = ucp_worker_init_usage_tracker(worker);
+    if (status != UCS_OK) {
+        goto err_am_cleanup;
+    }
+
     *worker_p = worker;
     return UCS_OK;
 
+err_am_cleanup:
+    ucp_am_cleanup(worker);
 err_tag_match_cleanup:
     ucp_tag_match_cleanup(&worker->tm);
 err_destroy_mpools:
