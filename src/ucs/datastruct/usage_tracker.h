@@ -7,14 +7,11 @@
 #ifndef UCS_USAGE_TRACKER_H_
 #define UCS_USAGE_TRACKER_H_
 
-
 #include <stdint.h>
-#include <stddef.h>
-
 
 #include <ucs/datastruct/khash.h>
+#include <ucs/datastruct/linear_func.h>
 #include <ucs/datastruct/lru.h>
-
 
 /* Usage Tracker element data structure */
 typedef struct {
@@ -30,54 +27,43 @@ typedef struct {
 
 
 /* Callback type for rank modify notification */
-typedef void (*ucs_usage_tracker_rank_cb_t)(void *entry, void *arg);
-
-
-/* Usage Tracker exponential decay parameters */
-typedef struct {
-    /* Multiplier factor [0-1] */
-    double a;
-    /* Addition factor [0-1] */
-    double b;
-} ucs_usage_tracker_exp_decay_t;
+typedef void (*ucs_usage_tracker_elem_update_cb_t)(void *entry, void *arg);
 
 
 typedef struct {
     /* Max number of promoted entries */
-    unsigned                    promote_capacity;
+    unsigned                           promote_capacity;
     /* Max number of entries to promote in each progress */
-    unsigned                    promote_thresh;
-    /* Min score difference in order to remove an entry from promoted list [0-1]*/
-    double                      remove_thresh;
+    unsigned                           promote_thresh;
+    /* Min score difference in order to remove an entry from promoted list [0-1] */
+    double                             remove_thresh;
     /* User callback which will be called when an entry is promoted. */
-    ucs_usage_tracker_rank_cb_t promote_cb;
+    ucs_usage_tracker_elem_update_cb_t promote_cb;
     /* User object which will be passed to promote callback. */
-    void                       *promote_arg;
+    void                              *promote_arg;
     /* User callback which will be called when an entry is demoted. */
-    ucs_usage_tracker_rank_cb_t demote_cb;
+    ucs_usage_tracker_elem_update_cb_t demote_cb;
     /* User object which will be passed to demote callback. */
-    void                       *demote_arg;
+    void                              *demote_arg;
     /* Exponential decay linear parameters (mult/add factors) */
-    ucs_usage_tracker_exp_decay_t exp_decay;
+    ucs_linear_func_t                  exp_decay;
 } ucs_usage_tracker_params_t;
 
 
 /* Hash table type for Usage Tracker class */
 KHASH_INIT(usage_tracker_hash, uint64_t, ucs_usage_tracker_element_t, 1,
            kh_int64_hash_func, kh_int64_hash_equal);
-
-
 typedef khash_t(usage_tracker_hash) ucs_usage_tracker_hash_t;
 
 
 /* Usage Tracker main data structure */
 typedef struct ucs_usage_tracker {
+    /* Usage Tracker params */
+    ucs_usage_tracker_params_t params;
     /* Hash table of addresses as keys */
     ucs_usage_tracker_hash_t   hash;
     /* LRU cache to track most active entries */
     ucs_lru_h                  lru;
-    /* Usage Tracker params */
-    ucs_usage_tracker_params_t params;
 } ucs_usage_tracker_t;
 
 
@@ -130,8 +116,8 @@ void ucs_usage_tracker_progress(ucs_usage_tracker_h usage_tracker);
  * @param [in]  score          Min score of the entry.
  *
  */
-void ucs_usage_tracker_push_min_score(ucs_usage_tracker_h usage_tracker,
-                                      void *key, double score);
+void ucs_usage_tracker_set_min_score(ucs_usage_tracker_h usage_tracker,
+                                     void *key, double score);
 
 
 /**
@@ -175,6 +161,5 @@ ucs_usage_tracker_touch_key(ucs_usage_tracker_h usage_tracker, void *key)
 {
     ucs_lru_push(usage_tracker->lru, key);
 }
-
 
 #endif
