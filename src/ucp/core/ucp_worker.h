@@ -366,6 +366,12 @@ typedef struct ucp_worker {
     struct {
         ucs_usage_tracker_h          handle;
         int                          enabled;
+        unsigned                     iter_count;          /* Number of progress iterations to skip,
+                                                           * used to minimize call of ucs_get_time */
+        uct_worker_cb_id_t           cb_id;               /* Keepalive callback id */
+        ucs_time_t                   last_round;          /* Last round timestamp */
+        unsigned                     samples_count;
+        ucs_time_t                   interval;
     } usage_tracker;
 } ucp_worker_t;
 
@@ -420,6 +426,7 @@ ucs_status_t ucp_worker_discard_uct_ep_pending_cb(uct_pending_req_t *self);
 
 unsigned ucp_worker_discard_uct_ep_progress(void *arg);
 
+unsigned ucp_worker_progress_usage_tracker(void *arg);
 
 ucs_status_t ucp_worker_iface_estimate_perf(const ucp_worker_iface_t *wiface,
                                             uct_perf_attr_t *perf_attr);

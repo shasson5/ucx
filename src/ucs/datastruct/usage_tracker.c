@@ -22,6 +22,8 @@
         goto err; \
     }
 
+#define MIN_PROMOTE_SCORE 0.8
+
 ucs_status_t ucs_usage_tracker_create(const ucs_usage_tracker_params_t *params,
                                       ucs_usage_tracker_h *usage_tracker_p)
 {
@@ -196,7 +198,10 @@ static void ucs_usage_tracker_update_rank(ucs_usage_tracker_h usage_tracker)
     for (elem_index = 0; elem_index < elems_count; ++elem_index) {
         item = elems_array[elem_index];
 
-        if (elem_index < params->promote_thresh) {
+        printf("[%p: %.4f], ", item->key, item->score);
+
+        if ((elem_index < params->promote_thresh) &&
+                (item->score > MIN_PROMOTE_SCORE)) {
             if (item->promoted) {
                 continue;
             }
@@ -213,6 +218,7 @@ static void ucs_usage_tracker_update_rank(ucs_usage_tracker_h usage_tracker)
         }
     }
 
+    printf("\n");
     ucs_free(elems_array);
 }
 

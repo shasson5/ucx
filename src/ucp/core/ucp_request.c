@@ -749,8 +749,14 @@ ucs_status_t ucp_request_progress_wrapper(uct_pending_req_t *self)
 
         if (worker->usage_tracker.enabled) {
             ucs_usage_tracker_touch_key(worker->usage_tracker.handle, req->send.ep);
-            if (worker->usage_tracker.counter == 1000) {
-                worker->usage_tracker.enabled = 0;
+            worker->usage_tracker.samples_count ++;
+
+            if ((worker->usage_tracker.samples_count % 1000000) == 0) {
+                worker->usage_tracker.enabled    = 0;
+                worker->usage_tracker.last_round = ucs_get_time();
+                uct_worker_progress_register_safe(worker->uct,
+                                                ucp_worker_progress_usage_tracker, worker, 0,
+                                                &worker->usage_tracker.cb_id);
             }
         }
     }
