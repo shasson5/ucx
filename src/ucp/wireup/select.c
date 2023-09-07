@@ -486,6 +486,13 @@ static UCS_F_NOINLINE ucs_status_t ucp_wireup_select_transport(
             continue;
         }
 
+        if (ucs_usage_tracker_is_promoted(ep->worker->usage_tracker.handle, ep)) {
+            if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_IMPORTANT) &&
+                    !(criteria->tl_rsc_flags & UCP_TL_RSC_FLAG_AUX)) {
+                continue;
+            }
+        }
+
         has_cm = ucp_ep_init_flags_has_cm(select_params->ep_init_flags);
         if (select_params->ep_init_flags & UCP_EP_INIT_CONNECT_TO_IFACE_ONLY) {
             local_iface_flags.mandatory |= UCT_IFACE_FLAG_CONNECT_TO_IFACE;

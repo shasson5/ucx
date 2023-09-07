@@ -133,6 +133,7 @@ void ucs_usage_tracker_set_min_score(ucs_usage_tracker_h usage_tracker,
 ucs_status_t ucs_usage_tracker_get_score(ucs_usage_tracker_h usage_tracker,
                                          void *key, double *score_p);
 
+int ucs_usage_tracker_is_promoted(ucs_usage_tracker_h usage_tracker, void *key);
 
 /**
  * @brief Remove an entry from Usage Tracker.

@@ -2411,11 +2411,6 @@ unsigned ucp_worker_progress_usage_tracker(void *arg)
     return 1;
 }
 
-static void promote_stub(void *entry, void *arg)
-{
-    printf("promote %p\n", entry);
-}
-
 static void demote_stub(void *entry, void *arg)
 {
     printf("demote %p\n", entry);
@@ -2431,7 +2426,7 @@ static ucs_status_t ucp_worker_create_usage_tracker(ucp_worker_h worker)
     params.remove_thresh    = 0.2;
     params.exp_decay.c      = 0.2;
     params.exp_decay.m      = 0.8;
-    params.promote_cb       = promote_stub;
+    params.promote_cb       = ucp_wireup_promote_cb;
     params.demote_cb        = demote_stub;
 
     status = ucs_usage_tracker_create(&params, &worker->usage_tracker.handle);

@@ -46,6 +46,7 @@
         } \
     } while (0)
 
+#define SCORE_TO_PACKED 100
 
 size_t ucp_wireup_msg_pack(void *dest, void *arg)
 {
@@ -194,9 +195,9 @@ ucp_wireup_msg_prepare(ucp_ep_h ep, uint8_t type,
     unsigned pack_flags   = ucp_worker_default_address_pack_flags(ep->worker) |
                             UCP_ADDRESS_PACK_FLAG_TL_RSC_IDX;
     ucs_status_t status;
+    double score;
 
     msg_hdr->type      = type;
-    msg_hdr->err_mode  = ucp_ep_config(ep)->key.err_mode;
     msg_hdr->conn_sn   = ep->conn_sn;
     msg_hdr->src_ep_id = ucp_ep_local_id(ep);
     if (ep->flags & UCP_EP_FLAG_REMOTE_ID) {
@@ -207,6 +208,14 @@ ucp_wireup_msg_prepare(ucp_ep_h ep, uint8_t type,
         msg_hdr->dst_ep_id = UCS_PTR_MAP_KEY_INVALID;
     }
 
+    status = ucs_usage_tracker_get_score(ep->worker->usage_tracker.handle, ep, &score);
+//    if (status != UCS_OK) {
+//        ucs_error("failed to get score: %p", ep);
+//        goto out;
+//    }
+
+    msg_hdr->score = score * SCORE_TO_PACKED;
+
     /* pack all addresses */
     status = ucp_address_pack(ep->worker, ep, tl_bitmap, pack_flags,
                               context->config.ext.worker_addr_version,
@@ -216,6 +225,7 @@ ucp_wireup_msg_prepare(ucp_ep_h ep, uint8_t type,
         ucs_error("failed to pack address: %s", ucs_status_string(status));
     }
 
+out:
     return status;
 }
 
@@ -570,11 +580,124 @@ void ucp_wireup_remote_connected(ucp_ep_h ep)
     ucs_assert(ep->flags & UCP_EP_FLAG_REMOTE_ID);
 }
 
-static UCS_F_ALWAYS_INLINE unsigned
-ucp_ep_err_mode_init_flags(ucp_err_handling_mode_t err_mode)
+//static int is_wireup_ep(ucp_ep_h ep)
+//{
+//    ucp_lane_index_t lane;
+//    uct_ep_h uct_ep;
+//
+//    for (lane = 0; lane < ucp_ep_num_lanes(ep); ++lane) {
+//        uct_ep = ucp_ep_get_lane(ep, lane);
+//        if (ucp_wireup_ep_test(uct_ep)) {
+//            return 1;
+//        }
+//    }
+//
+//    return 0;
+//}
+
+void ucp_wireup_promote_cb(void *entry, void *arg)
 {
-    return (err_mode == UCP_ERR_HANDLING_MODE_PEER) ?
-           UCP_EP_INIT_ERR_MODE_PEER_FAILURE : 0;
+//    ucp_ep_h ep            = (ucp_ep_h)entry;
+//    unsigned ep_init_flags = UCP_EP_INIT_CREATE_AM_LANE;
+//    unsigned addr_indices[UCP_MAX_LANES];
+//    ucs_status_t status;
+//    double score;
+//    ucp_unpacked_address_t remote_address;
+//
+//    if (is_wireup_ep(ep)) {
+//        return;
+//    }
+//
+//    if (ep->flags & UCP_EP_FLAG_REMOTE_CONNECTED) {
+//        ucs_usage_tracker_get_score(ep->worker->usage_tracker.handle, ep, &score);
+//        printf("sending promotion request from %p to %p (%.2f)\n", ep,
+//                ((void *)ep->ext->remote_ep_id), score);
+//
+//        ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_PROMOTION, &ucp_tl_bitmap_max, NULL);
+//    }
+//
+//    else if (ep->flags & UCP_EP_FLAG_CONNECT_GOT_PROMOTE_REQ) {
+//        status = ucp_address_unpack(ep->worker, ep->packed_addr,
+//                UCP_ADDRESS_PACK_FLAGS_ALL, &remote_address);
+//
+//        if (status != UCS_OK) {
+//            printf("failed unpack address\n");
+//        }
+//
+//        status = ucp_wireup_init_lanes(ep, ep_init_flags, &ucp_tl_bitmap_max,
+//                                       &remote_address, addr_indices);
+//        if (status != UCS_OK) {
+//            goto err_ep_set_failed;
+//        }
+//
+//        ucp_wireup_send_request(ep);
+//        free(ep->packed_addr);
+//    }
+//
+//    else {
+//        assert(0);
+//    }
+//
+//    return;
+//
+//err_ep_set_failed:
+//        ucp_ep_set_failed_schedule(ep, UCP_NULL_LANE, status);
+}
+
+static UCS_F_NOINLINE void
+ucp_wireup_process_promotion_request(ucp_worker_h worker, ucp_ep_h ep,
+                                     const ucp_wireup_msg_t *msg,
+                                     const ucp_unpacked_address_t *remote_address, size_t length)
+{
+    unsigned ep_init_flags = UCP_EP_INIT_CREATE_AM_LANE;
+    ucs_status_t status;
+    void *packed_addr;
+
+    printf("received promotion request from %p to %p (%u)\n", (void *)msg->src_ep_id, ep, msg->score);
+    ucp_ep_update_flags(ep, 0, UCP_EP_FLAG_LOCAL_CONNECTED | UCP_EP_FLAG_REMOTE_CONNECTED);
+
+    if (ep == NULL) {
+        status = ucp_ep_create_base(worker, ep_init_flags,
+                                    remote_address->name,
+                                    "promo-request", &ep);
+        if (status != UCS_OK) {
+            return;
+        }
+    }
+
+    packed_addr = malloc(length);
+    memcpy(packed_addr, msg + 1, length);
+    ep->packed_addr = packed_addr;
+
+    ucp_ep_update_remote_id(ep, msg->src_ep_id);
+    ep->flags |= UCP_EP_FLAG_CONNECT_GOT_PROMOTE_REQ;
+    ucs_usage_tracker_set_min_score(ep->worker->usage_tracker.handle, ep, (double)msg->score / 100.0);
+}
+
+    //    if (ejected_ep != NULL) {
+    //        tl_bitmap = ucp_wireup_get_ep_tl_bitmap(ejected_ep, UCS_MASK(ucp_ep_num_lanes(ejected_ep)));
+    //        ucp_wireup_msg_send(ejected_ep, UCP_WIREUP_MSG_DEMOTION_REQUEST, &tl_bitmap, NULL);
+    //    }
+
+static UCS_F_NOINLINE void
+ucp_wireup_process_demotion_request(ucp_worker_h worker, ucp_ep_h ep,
+                                    const ucp_wireup_msg_t *msg,
+                                    const ucp_unpacked_address_t *remote_address)
+{
+////    ucs_status_t status;
+////    unsigned addr_indices[UCP_MAX_LANES];
+//
+//    ucs_balancer_remove(ep);
+//
+//    ep->important = 0;
+//    ucp_ep_update_remote_id(ep, msg->src_ep_id);
+////    status = ucp_wireup_init_lanes(ep, UCP_EP_INIT_CREATE_AM_LANE, &ucp_tl_bitmap_max,
+////                                   remote_address, addr_indices);
+////    if (status != UCS_OK) {
+////        printf("error\n");
+////    }
+//
+//    ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_DEMOTION_RESPONSE, &ucp_tl_bitmap_max, NULL);
 }
 
 static UCS_F_NOINLINE void
@@ -582,8 +705,7 @@ ucp_wireup_process_pre_request(ucp_worker_h worker, ucp_ep_h ep,
                                const ucp_wireup_msg_t *msg,
                                const ucp_unpacked_address_t *remote_address)
 {
-    unsigned ep_init_flags = UCP_EP_INIT_CREATE_AM_LANE |
-                             ucp_ep_err_mode_init_flags(msg->err_mode);
+    unsigned ep_init_flags = UCP_EP_INIT_CREATE_AM_LANE;
     unsigned addr_indices[UCP_MAX_LANES];
     ucs_status_t status;
 
@@ -603,11 +725,6 @@ ucp_wireup_process_pre_request(ucp_worker_h worker, ucp_ep_h ep,
     ucp_ep_update_flags(ep, 0,
                         UCP_EP_FLAG_LOCAL_CONNECTED |
                         UCP_EP_FLAG_REMOTE_CONNECTED);
-
-    status = ucp_ep_config_err_mode_check_mismatch(ep, msg->err_mode);
-    if (status != UCS_OK) {
-        goto err_ep_set_failed;
-    }
 
     /* restore the EP here to avoid access to incomplete configuration before
        this point */
@@ -634,7 +751,7 @@ ucp_wireup_process_request(ucp_worker_h worker, ucp_ep_h ep,
 {
     uint64_t remote_uuid      = remote_address->uuid;
     int send_reply            = 0;
-    unsigned ep_init_flags    = ucp_ep_err_mode_init_flags(msg->err_mode);
+    unsigned ep_init_flags    = 0;
     ucp_tl_bitmap_t tl_bitmap = UCS_BITMAP_ZERO;
     ucp_lane_index_t lanes2remote[UCP_MAX_LANES];
     unsigned addr_indices[UCP_MAX_LANES];
@@ -678,11 +795,6 @@ ucp_wireup_process_request(ucp_worker_h worker, ucp_ep_h ep,
                              worker, ep, worker->context);
                 }
             }
-        } else {
-            status = ucp_ep_config_err_mode_check_mismatch(ep, msg->err_mode);
-            if (status != UCS_OK) {
-                goto err_set_ep_failed;
-            }
         }
 
         ucp_ep_update_remote_id(ep, msg->src_ep_id);
@@ -716,6 +828,7 @@ ucp_wireup_process_request(ucp_worker_h worker, ucp_ep_h ep,
     status = ucp_wireup_init_lanes(ep, ep_init_flags, &ucp_tl_bitmap_max,
                                    remote_address, addr_indices);
     if (status != UCS_OK) {
+        printf("failed init_lanes wireup request\n");
         goto err_set_ep_failed;
     }
 
@@ -961,6 +1074,10 @@ static ucs_status_t ucp_wireup_msg_handler(void *arg, void *data,
         ucp_wireup_process_ack(worker, ep, msg);
     } else if (msg->type == UCP_WIREUP_MSG_PRE_REQUEST) {
         ucp_wireup_process_pre_request(worker, ep, msg, &remote_address);
+    } else if (msg->type == UCP_WIREUP_MSG_PROMOTION) {
+        ucp_wireup_process_promotion_request(worker, ep, msg, &remote_address, length);
+    } else if (msg->type == UCP_WIREUP_MSG_DEMOTION) {
+        ucp_wireup_process_demotion_request(worker, ep, msg, &remote_address);
     } else if (msg->type == UCP_WIREUP_MSG_REQUEST) {
         ucp_wireup_process_request(worker, ep, msg, &remote_address);
     } else if (msg->type == UCP_WIREUP_MSG_REPLY) {

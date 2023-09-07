@@ -126,8 +126,9 @@ enum {
     UCP_EP_FLAG_CLIENT_CONNECT_CB      = UCS_BIT(23),/* DEBUG: Client connect callback invoked */
     UCP_EP_FLAG_SERVER_NOTIFY_CB       = UCS_BIT(24),/* DEBUG: Server notify callback invoked */
     UCP_EP_FLAG_DISCONNECT_CB_CALLED   = UCS_BIT(25),/* DEBUG: Got disconnect notification */
-    UCP_EP_FLAG_CONNECT_WAIT_PRE_REQ   = UCS_BIT(26) /* DEBUG: Connection pre-request needs to be
+    UCP_EP_FLAG_CONNECT_WAIT_PRE_REQ   = UCS_BIT(26), /* DEBUG: Connection pre-request needs to be
                                                         received from a peer */
+    UCP_EP_FLAG_CONNECT_GOT_PROMOTE_REQ    = UCS_BIT(27)
 };
 
 
@@ -548,6 +549,7 @@ typedef struct ucp_ep {
     ucp_ep_match_conn_sn_t        conn_sn;       /* Sequence number for remote connection */
     ucp_lane_index_t              am_lane;       /* Cached value */
     ucp_ep_flags_t                flags;         /* Endpoint flags */
+    void *                        packed_addr;
     /* Transports for every lane */
     uct_ep_h                      uct_eps[UCP_MAX_FAST_PATH_LANES];
     ucp_ep_ext_t                  *ext;                   /* Endpoint extension */

@@ -22,7 +22,7 @@
         goto err; \
     }
 
-#define MIN_PROMOTE_SCORE 0.8
+#define MIN_PROMOTE_SCORE 0.5
 
 ucs_status_t ucs_usage_tracker_create(const ucs_usage_tracker_params_t *params,
                                       ucs_usage_tracker_h *usage_tracker_p)
@@ -114,6 +114,20 @@ ucs_usage_tracker_put(ucs_usage_tracker_h usage_tracker, void *key)
     return elem;
 }
 
+int ucs_usage_tracker_is_promoted(ucs_usage_tracker_h usage_tracker, void *key)
+{
+    ucs_usage_tracker_element_t *item;
+    khiter_t iter;
+
+    iter = kh_get(usage_tracker_hash, &usage_tracker->hash, (uint64_t)key);
+    if (iter == kh_end(&usage_tracker->hash)) {
+        return 0;
+    }
+
+    item = &kh_value(&usage_tracker->hash, iter);
+    return item->promoted;
+}
+
 ucs_status_t ucs_usage_tracker_get_score(ucs_usage_tracker_h usage_tracker,
                                          void *key, double *score_p)
 {
@@ -122,6 +136,7 @@ ucs_status_t ucs_usage_tracker_get_score(ucs_usage_tracker_h usage_tracker,
 
     iter = kh_get(usage_tracker_hash, &usage_tracker->hash, (uint64_t)key);
     if (iter == kh_end(&usage_tracker->hash)) {
+        *score_p = 0;
         return UCS_ERR_NO_ELEM;
     }
 
@@ -144,30 +159,25 @@ ucs_usage_tracker_remove(ucs_usage_tracker_h usage_tracker, void *key)
     return UCS_OK;
 }
 
-void ucs_usage_tracker_set_min_score(ucs_usage_tracker_h usage_tracker,
-                                     void *key, double score)
-{
-    ucs_usage_tracker_element_t *elem;
-
-    elem            = ucs_usage_tracker_put(usage_tracker, key);
-    elem->min_score = score;
-}
-
 /* Checks if an entry has high enough score to get promoted. */
 static int ucs_usage_tracker_compare(const void *elem_ptr1,
                                      const void *elem_ptr2, void *arg)
 {
     const ucs_usage_tracker_params_t *params = arg;
     ucs_usage_tracker_element_t *elem1, *elem2;
+    double score1, score2;
 
     elem1 = *(ucs_usage_tracker_element_t**)elem_ptr1;
     elem2 = *(ucs_usage_tracker_element_t**)elem_ptr2;
 
-    if (fabs(elem1->score - elem2->score) < params->remove_thresh) {
+    score1 = ucs_usage_tracker_score(elem1);
+    score2 = ucs_usage_tracker_score(elem2);
+
+    if (fabs(score1 - score2) < params->remove_thresh) {
         return (elem1->key > elem2->key) ? 1 : -1;
     }
 
-    return (elem1->score < elem2->score) ? 1 : -1;
+    return (score1 < score2) ? 1 : -1;
 }
 
 /* Promote/Demote entires base on the latest score, and triggers user
@@ -198,16 +208,16 @@ static void ucs_usage_tracker_update_rank(ucs_usage_tracker_h usage_tracker)
     for (elem_index = 0; elem_index < elems_count; ++elem_index) {
         item = elems_array[elem_index];
 
-        printf("[%p: %.4f], ", item->key, item->score);
+//        printf("[%p: %.4f], ", item->key, item->score);
 
         if ((elem_index < params->promote_thresh) &&
-                (item->score > MIN_PROMOTE_SCORE)) {
+                (ucs_usage_tracker_score(item) > MIN_PROMOTE_SCORE)) {
             if (item->promoted) {
                 continue;
             }
 
-            params->promote_cb(item->key, params->promote_arg);
             item->promoted = 1;
+            params->promote_cb(item->key, params->promote_arg);
         } else if (elem_index >= params->promote_capacity) {
             if (item->promoted) {
                 params->demote_cb(item->key, params->demote_arg);
@@ -218,8 +228,18 @@ static void ucs_usage_tracker_update_rank(ucs_usage_tracker_h usage_tracker)
         }
     }
 
-    printf("\n");
+//    printf("\n");
     ucs_free(elems_array);
+}
+
+void ucs_usage_tracker_set_min_score(ucs_usage_tracker_h usage_tracker,
+                                     void *key, double score)
+{
+    ucs_usage_tracker_element_t *elem;
+
+    elem            = ucs_usage_tracker_put(usage_tracker, key);
+    elem->min_score = score;
+    ucs_usage_tracker_update_rank(usage_tracker);
 }
 
 void ucs_usage_tracker_progress(ucs_usage_tracker_h usage_tracker)

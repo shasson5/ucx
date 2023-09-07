@@ -236,6 +236,7 @@ ucp_proto_request_send_init(ucp_request_t *req, ucp_ep_h ep, uint32_t flags)
     req->send.ep = ep;
 }
 
+//static int counter2 = 0;
 
 static UCS_F_ALWAYS_INLINE ucs_status_ptr_t ucp_proto_request_send_op_common(
         ucp_worker_h worker, ucp_ep_h ep, ucp_proto_select_t *proto_select,
@@ -259,6 +260,13 @@ static UCS_F_ALWAYS_INLINE ucs_status_ptr_t ucp_proto_request_send_op_common(
         /* coverity[offset_free] */
         ucp_request_imm_cmpl_param(param, req, send);
     }
+
+//    if ((counter2 % 1000000) == 0) {
+//        printf("zcopy %p: %s %lu\n", req->send.ep, req->send.ep->worker->context->tl_rscs[ucp_ep_config(req->send.ep)->key.lanes[ucp_ep_config(req->send.ep)->key.am_lane].rsc_index].tl_rsc.tl_name,
+//                msg_length);
+//    }
+//
+//    counter2 += 1;
 
     ucp_request_set_send_callback_param(param, req, send);
 
