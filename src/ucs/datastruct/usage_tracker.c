@@ -23,6 +23,8 @@
         goto err; \
     }
 
+#define MIN_PROMOTE_SCORE 0.8
+
 ucs_status_t ucs_usage_tracker_create(const ucs_usage_tracker_params_t *params,
                                       ucs_usage_tracker_h *usage_tracker_p)
 {
@@ -233,6 +235,7 @@ static void ucs_usage_tracker_promote(ucs_usage_tracker_h usage_tracker)
         item->promoted = 0;
     }
 
+    printf("\n");
     ucs_free(elems_array);
 }
 

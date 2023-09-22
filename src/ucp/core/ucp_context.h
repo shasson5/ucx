@@ -133,6 +133,9 @@ typedef struct ucp_context_config {
     int                                    proto_request_reset;
     /** Time period between keepalive rounds */
     ucs_time_t                             keepalive_interval;
+    /** Enable usage tracker */
+    int                                    enable_usage_tracker;
+    ucs_time_t                             usage_tracker_interval;
     /** Maximal number of endpoints to check on every keepalive round
      * (0 - disabled, inf - check all endpoints on every round) */
     unsigned                               keepalive_num_eps;
