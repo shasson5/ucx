@@ -25,6 +25,26 @@
 
 #define MIN_PROMOTE_SCORE 0.8
 
+ucs_config_field_t ucs_config_usage_tracker_table[] = {
+    {"USAGE_TRACKER_PROMOTE_CAPACITY", "20", "Max number of promoted entries",
+     ucs_offsetof(ucs_usage_tracker_config_t, promote_capacity), UCS_CONFIG_TYPE_UINT},
+
+    {"USAGE_TRACKER_PROMOTE_THRESH", "10", "Max number of entries to promote in each progress",
+     ucs_offsetof(ucs_usage_tracker_config_t, promote_thresh), UCS_CONFIG_TYPE_UINT},
+
+    {"USAGE_TRACKER_REMOVE_THRESH", "0.2",
+            "Min score difference in order to remove an entry from promoted list [0-1]",
+     ucs_offsetof(ucs_usage_tracker_config_t, remove_thresh), UCS_CONFIG_TYPE_DOUBLE},
+
+    {"USAGE_TRACKER_EXP_DECAY_MULTIPLIER", "0.8", "Exponential decay linear multiplier",
+     ucs_offsetof(ucs_usage_tracker_config_t, exp_decay_multiplier), UCS_CONFIG_TYPE_DOUBLE},
+
+    {"USAGE_TRACKER_EXP_DECAY_ADDER", "0.2", "Exponential decay linear adder",
+     ucs_offsetof(ucs_usage_tracker_config_t, exp_decay_adder), UCS_CONFIG_TYPE_DOUBLE},
+
+    {NULL}
+};
+
 ucs_status_t ucs_usage_tracker_create(const ucs_usage_tracker_params_t *params,
                                       ucs_usage_tracker_h *usage_tracker_p)
 {

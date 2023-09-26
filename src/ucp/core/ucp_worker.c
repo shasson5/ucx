@@ -2428,17 +2428,8 @@ void ucp_worker_track_ep_usage(ucp_worker_h worker, ucp_ep_h ep)
     }
 }
 
-static void ucp_worker_promote_stub(void *entry, void *arg)
-{
-    printf("promote %p\n", entry);
-}
-
-static void ucp_worker_demote_stub(void *entry, void *arg)
-{
-    printf("demote %p\n", entry);
-}
-
-static ucs_status_t ucp_worker_create_usage_tracker(ucp_worker_h worker)
+static ucs_status_t ucp_worker_create_usage_tracker(ucp_worker_h worker,
+                                                    const ucs_usage_tracker_config_t *config)
 {
     ucs_usage_tracker_params_t params;
     ucs_status_t status;
@@ -2447,13 +2438,13 @@ static ucs_status_t ucp_worker_create_usage_tracker(ucp_worker_h worker)
         return UCS_OK;
     }
 
-    params.promote_capacity = 20;
-    params.promote_thresh   = 10;
-    params.remove_thresh    = 0.2;
-    params.exp_decay.c      = 0.2;
-    params.exp_decay.m      = 0.8;
-    params.promote_cb       = ucp_worker_promote_stub;
-    params.demote_cb        = ucp_worker_demote_stub;
+    params.promote_capacity = config->promote_capacity;
+    params.promote_thresh   = config->promote_thresh;
+    params.remove_thresh    = config->remove_thresh;
+    params.exp_decay.c      = config->exp_decay_adder;
+    params.exp_decay.m      = config->exp_decay_multiplier;
+    params.promote_cb       = (ucs_usage_tracker_elem_update_cb_t)ucs_empty_function;
+    params.demote_cb        = (ucs_usage_tracker_elem_update_cb_t)ucs_empty_function;
 
     status = ucs_usage_tracker_create(&params, &worker->usage_tracker.handle);
     if (status != UCS_OK) {

@@ -26,6 +26,23 @@ typedef struct {
 } ucs_usage_tracker_element_t;
 
 
+/*
+ * Usage Tracker configuration parameters.
+ */
+typedef struct ucs_usage_tracker_config {
+    /* Max number of promoted entries */
+    unsigned promote_capacity;
+    /* Max number of entries to promote in each progress */
+    unsigned promote_thresh;
+    /* Min score difference in order to remove an entry from promoted list [0-1] */
+    double   remove_thresh;
+    /* Exponential decay multiplier */
+    double   exp_decay_multiplier;
+    /* Exponential decay adder */
+    double   exp_decay_adder;
+} ucs_usage_tracker_config_t;
+
+
 /* Callback type for rank modify notification */
 typedef void (*ucs_usage_tracker_elem_update_cb_t)(void *entry, void *arg);
 
