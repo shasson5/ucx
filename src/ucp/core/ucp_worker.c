@@ -2435,7 +2435,7 @@ static ucs_status_t ucp_worker_create_usage_tracker(ucp_worker_h worker)
     }
 
     worker->usage_tracker.enabled    = 0;
-    worker->usage_tracker.interval   = 1e6 * 3;
+    worker->usage_tracker.interval   = 200000;
     worker->usage_tracker.last_round = 0;
     worker->usage_tracker.iter_count = 0;
     worker->usage_tracker.cb_id      = UCS_CALLBACKQ_ID_NULL;

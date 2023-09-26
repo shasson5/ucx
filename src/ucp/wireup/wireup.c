@@ -605,6 +605,7 @@ void ucp_wireup_promote_cb(void *entry, void *arg)
     ucp_unpacked_address_t remote_address;
 
     if (is_wireup_ep(ep)) {
+        assert(0);
         return;
     }
 
