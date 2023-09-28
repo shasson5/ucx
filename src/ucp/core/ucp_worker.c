@@ -2435,7 +2435,7 @@ void ucp_worker_track_ep_usage(ucp_worker_h worker, ucp_ep_h ep)
 
 static ucs_status_t ucp_worker_create_usage_tracker(ucp_worker_h worker)
 {
-    ucs_usage_tracker_params_t params;
+    ucs_usage_tracker_params_t params = {0};
     ucs_status_t status;
 
     if (!worker->context->config.ext.usage_tracker_enable) {
@@ -2447,10 +2447,8 @@ static ucs_status_t ucp_worker_create_usage_tracker(ucp_worker_h worker)
     params.remove_thresh    = UCS_USAGE_TRACKER_REMOVE_THRESH;
     params.exp_decay.m      = UCS_USAGE_TRACKER_EXP_DECAY_MULTIPLIER;
     params.exp_decay.c      = UCS_USAGE_TRACKER_EXP_DECAY_CONST;
-    params.promote_cb       =
-            (ucs_usage_tracker_elem_update_cb_t)ucs_empty_function;
-    params.demote_cb        =
-            (ucs_usage_tracker_elem_update_cb_t)ucs_empty_function;
+    params.promote_cb       = ucp_wireup_promote_cb;
+    params.demote_cb        = ucp_wireup_demote_cb;
 
     status = ucs_usage_tracker_create(&params, &worker->usage_tracker.handle);
     if (status != UCS_OK) {
@@ -2461,6 +2459,7 @@ static ucs_status_t ucp_worker_create_usage_tracker(ucp_worker_h worker)
     worker->usage_tracker.iter_count    = 0;
     worker->usage_tracker.samples_count = 0;
     worker->usage_tracker.last_round    = ucs_get_time();
+    worker->usage_tracker.cb_id         = UCS_CALLBACKQ_ID_NULL;
 
     uct_worker_progress_register_safe(worker->uct,
                                       ucp_worker_progress_usage_tracker, worker,

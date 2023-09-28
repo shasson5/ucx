@@ -84,6 +84,7 @@ typedef struct {
     int                           show_error;       /* Global flag that controls showing
                                                      * errors from a selecting transport
                                                      * procedure */
+    int                           connect_to_ep;
 } ucp_wireup_select_params_t;
 
 /**
@@ -484,6 +485,10 @@ static UCS_F_NOINLINE ucs_status_t ucp_wireup_select_transport(
         if ((context->tl_rscs[rsc_index].flags & UCP_TL_RSC_FLAG_AUX) &&
             !(criteria->tl_rsc_flags & UCP_TL_RSC_FLAG_AUX)) {
             continue;
+        }
+
+        if (select_params->connect_to_ep && !(criteria->tl_rsc_flags & UCP_TL_RSC_FLAG_AUX)) {
+            local_iface_flags.mandatory |= UCT_IFACE_FLAG_CONNECT_TO_EP;
         }
 
         has_cm = ucp_ep_init_flags_has_cm(select_params->ep_init_flags);
@@ -1994,7 +1999,7 @@ static UCS_F_NOINLINE void
 ucp_wireup_select_params_init(ucp_wireup_select_params_t *select_params,
                               ucp_ep_h ep, unsigned ep_init_flags,
                               const ucp_unpacked_address_t *remote_address,
-                              ucp_tl_bitmap_t tl_bitmap, int show_error)
+                              ucp_tl_bitmap_t tl_bitmap, int show_error, int connect_to_ep)
 {
     select_params->ep            = ep;
     select_params->ep_init_flags = ep_init_flags;
@@ -2003,6 +2008,7 @@ ucp_wireup_select_params_init(ucp_wireup_select_params_t *select_params,
     select_params->allow_am      =
             ucp_wireup_allow_am_emulation_layer(ep_init_flags);
     select_params->show_error    = show_error;
+    select_params->connect_to_ep = connect_to_ep;
 }
 
 static double
@@ -2376,7 +2382,7 @@ ucp_wireup_select_lanes(ucp_ep_h ep, unsigned ep_init_flags,
                         ucp_tl_bitmap_t tl_bitmap,
                         const ucp_unpacked_address_t *remote_address,
                         unsigned *addr_indices, ucp_ep_config_key_t *key,
-                        int show_error)
+                        int show_error, int connect_to_ep)
 {
     ucp_worker_h worker                = ep->worker;
     ucp_tl_bitmap_t scalable_tl_bitmap = worker->scalable_tl_bitmap;
@@ -2388,7 +2394,7 @@ ucp_wireup_select_lanes(ucp_ep_h ep, unsigned ep_init_flags,
 
     if (!UCS_BITMAP_IS_ZERO_INPLACE(&scalable_tl_bitmap)) {
         ucp_wireup_select_params_init(&select_params, ep, ep_init_flags,
-                                      remote_address, scalable_tl_bitmap, 0);
+                                      remote_address, scalable_tl_bitmap, 0, connect_to_ep);
         status = ucp_wireup_search_lanes(&select_params, key->err_mode,
                                          &select_ctx);
         if (status == UCS_OK) {
@@ -2401,7 +2407,7 @@ ucp_wireup_select_lanes(ucp_ep_h ep, unsigned ep_init_flags,
     }
 
     ucp_wireup_select_params_init(&select_params, ep, ep_init_flags,
-                                  remote_address, tl_bitmap, show_error);
+                                  remote_address, tl_bitmap, show_error, connect_to_ep);
     status = ucp_wireup_search_lanes(&select_params, key->err_mode,
                                      &select_ctx);
     if (status != UCS_OK) {
@@ -2437,7 +2443,7 @@ ucp_wireup_select_aux_transport(ucp_ep_h ep, unsigned ep_init_flags,
     ucs_status_t status;
 
     ucp_wireup_select_params_init(&select_params, ep, ep_init_flags,
-                                  remote_address, tl_bitmap, 1);
+                                  remote_address, tl_bitmap, 1, 0);
 
     /* Select auxiliary transport that supports async active message callback */
     ucp_wireup_fill_aux_criteria(&criteria, ep_init_flags,

@@ -395,7 +395,7 @@ static ucs_config_field_t ucp_context_config_table[] = {
    {"USAGE_TRACKER_ENABLE", "n", "Enable usage tracker",
     ucs_offsetof(ucp_context_config_t, usage_tracker_enable), UCS_CONFIG_TYPE_BOOL},
 
-   {"USAGE_TRACKER_INTERVAL", "3s",
+   {"USAGE_TRACKER_INTERVAL", "2s",
     "Time interval between usage tracker rounds. Must be non-zero value.",
     ucs_offsetof(ucp_context_config_t, usage_tracker_interval),
     UCS_CONFIG_TYPE_TIME_UNITS},
