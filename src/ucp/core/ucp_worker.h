@@ -213,6 +213,9 @@ typedef khash_t(ucp_worker_rkey_config) ucp_worker_rkey_config_hash_t;
 KHASH_TYPE(ucp_worker_discard_uct_ep_hash, uct_ep_h, ucp_request_t*);
 typedef khash_t(ucp_worker_discard_uct_ep_hash) ucp_worker_discard_uct_ep_hash_t;
 
+/* Hash map of UCP EPs that are being reconfigured on UCP Worker */
+KHASH_TYPE(ucp_worker_reconfigure_ep_hash, ucp_ep_h, ucp_lane_index_t*);
+typedef khash_t(ucp_worker_reconfigure_ep_hash) ucp_worker_reconfigure_ep_hash_t;
 
 typedef struct ucp_worker_mpool_key {
     ucs_memory_type_t mem_type;  /* memory type of the buffer pool */
@@ -330,6 +333,7 @@ typedef struct ucp_worker {
 
     ucp_worker_rkey_config_hash_t    rkey_config_hash;    /* RKEY config key -> index */
     ucp_worker_discard_uct_ep_hash_t discard_uct_ep_hash; /* Hash of discarded UCT EPs */
+    ucp_worker_reconfigure_ep_hash_t reconfigure_ep_hash; /* Hash of reconfigured UCP EPs */
     UCS_PTR_MAP_T(ep)                ep_map;              /* UCP ep key to ptr
                                                              mapping */
     UCS_PTR_MAP_T(request)           request_map;         /* UCP requests key to
@@ -409,6 +413,14 @@ void ucp_worker_keepalive_remove_ep(ucp_ep_h ep);
 /* must be called with async lock held */
 int ucp_worker_is_uct_ep_discarding(ucp_worker_h worker, uct_ep_h uct_ep);
 
+int ucp_worker_discarded_ep_is_flushed(ucp_ep_h ep);
+
+void ucp_worker_discard_uct_ep_mark_flushed(uct_completion_t *self);
+
+ucp_lane_index_t *ucp_worker_reconfigure_ep_pop(ucp_ep_h ep);
+
+ucs_status_t ucp_worker_reconfigure_ep_push(ucp_ep_h ep, ucp_lane_index_t *lanes2remote);
+
 /* must be called with async lock held */
 ucs_status_t ucp_worker_discard_uct_ep(ucp_ep_h ucp_ep, uct_ep_h uct_ep,
                                        ucp_rsc_index_t rsc_index,
@@ -416,7 +428,8 @@ ucs_status_t ucp_worker_discard_uct_ep(ucp_ep_h ucp_ep, uct_ep_h uct_ep,
                                        uct_pending_purge_callback_t purge_cb,
                                        void *purge_arg,
                                        ucp_send_nbx_callback_t discarded_cb,
-                                       void *discarded_cb_arg);
+                                       void *discarded_cb_arg,
+                                       uct_completion_callback_t flush_comp_cb);
 
 void ucp_worker_vfs_refresh(void *obj);
 

@@ -192,7 +192,7 @@ protected:
                                       UCP_NULL_RESOURCE,
                                       ep_pending_purge_count_reqs_cb,
                                       &purged_reqs_count, discarded_cb,
-                                      static_cast<void*>(&discarded_count));
+                                      static_cast<void*>(&discarded_count), NULL);
             UCS_ASYNC_UNBLOCK(&sender().worker()->async);
 
             if (ep_pending_purge_func == (void*)ep_pending_purge_func_iter_reqs) {

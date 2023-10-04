@@ -280,7 +280,7 @@ void ucp_wireup_ep_discard_aux_ep(ucp_wireup_ep_t *wireup_ep,
     ucp_worker_discard_uct_ep(ucp_ep, aux_ep, wireup_ep->aux_rsc_index,
                               ep_flush_flags, purge_cb, purge_arg,
                               (ucp_send_nbx_callback_t)ucs_empty_function,
-                              NULL);
+                              NULL, NULL);
 }
 
 static ucs_status_t ucp_wireup_ep_flush(uct_ep_h uct_ep, unsigned flags,
@@ -419,7 +419,7 @@ static UCS_CLASS_CLEANUP_FUNC(ucp_wireup_ep_t)
                                   self->super.rsc_index, UCT_FLUSH_FLAG_CANCEL,
                                   ucp_destroyed_ep_pending_purge, ucp_ep,
                                   (ucp_send_nbx_callback_t)ucs_empty_function,
-                                  NULL);
+                                  NULL, NULL);
         ucp_proxy_ep_set_uct_ep(&self->super, NULL, 0, UCP_NULL_RESOURCE);
     }
 

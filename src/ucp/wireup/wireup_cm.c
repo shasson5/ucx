@@ -383,7 +383,7 @@ ucp_wireup_cm_ep_cleanup(ucp_ep_t *ucp_ep)
                 ucp_ep, ucp_ep_get_lane(ucp_ep, lane_idx),
                 ucp_ep_get_rsc_index(ucp_ep, lane_idx), UCT_FLUSH_FLAG_CANCEL,
                 (uct_pending_purge_callback_t)ucs_empty_function_do_assert_void,
-                NULL, (ucp_send_nbx_callback_t)ucs_empty_function, NULL);
+                NULL, (ucp_send_nbx_callback_t)ucs_empty_function, NULL, NULL);
         ucp_ep_set_lane(ucp_ep, lane_idx, NULL);
     }
 }

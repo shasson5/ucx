@@ -125,10 +125,14 @@ static ucs_mpool_ops_t ucp_rkey_mpool_ops = {
 #define ucp_worker_discard_uct_ep_hash_key(_uct_ep) \
     kh_int64_hash_func((uintptr_t)(_uct_ep))
 
+#define ucp_worker_reconfigure_ep_hash_key(_ucp_ep) \
+    kh_int64_hash_func((uintptr_t)(_ucp_ep))
 
 KHASH_IMPL(ucp_worker_discard_uct_ep_hash, uct_ep_h, ucp_request_t*, 1,
            ucp_worker_discard_uct_ep_hash_key, kh_int64_hash_equal);
 
+KHASH_IMPL(ucp_worker_reconfigure_ep_hash, ucp_ep_h, ucp_lane_index_t*, 1,
+           ucp_worker_reconfigure_ep_hash_key, kh_int64_hash_equal);
 
 static ucs_status_t ucp_worker_wakeup_ctl_fd(ucp_worker_h worker,
                                              ucp_worker_event_fd_op_t op,
@@ -2510,6 +2514,7 @@ ucs_status_t ucp_worker_create(ucp_context_h context,
     ucs_list_head_init(&worker->internal_eps);
     kh_init_inplace(ucp_worker_rkey_config, &worker->rkey_config_hash);
     kh_init_inplace(ucp_worker_discard_uct_ep_hash, &worker->discard_uct_ep_hash);
+    kh_init_inplace(ucp_worker_reconfigure_ep_hash, &worker->reconfigure_ep_hash);
     worker->counters.ep_creations         = 0;
     worker->counters.ep_creation_failures = 0;
     worker->counters.ep_closures          = 0;
@@ -2716,6 +2721,7 @@ err_free:
     kh_destroy_inplace(ucp_worker_discard_uct_ep_hash,
                        &worker->discard_uct_ep_hash);
     kh_destroy_inplace(ucp_worker_rkey_config, &worker->rkey_config_hash);
+    kh_destroy_inplace(ucp_worker_reconfigure_ep_hash, &worker->reconfigure_ep_hash);
     ucp_worker_destroy_configs(worker);
     ucs_free(worker);
     return status;
@@ -2731,6 +2737,14 @@ static void ucp_worker_discard_uct_ep_complete(ucp_request_t *req)
     /* coverity[offset_free] */
     ucp_request_complete(req, send.cb, UCS_OK, req->user_data);
     ucp_ep_refcount_remove(ucp_ep, discard);
+}
+
+void ucp_worker_discard_uct_ep_mark_flushed(uct_completion_t *self)
+{
+    ucp_request_t *req = ucs_container_of(self, ucp_request_t,
+                                          send.state.uct_comp);
+
+    req->send.flush.sw_done = 1;
 }
 
 static unsigned ucp_worker_discard_uct_ep_destroy_progress(void *arg)
@@ -2805,7 +2819,7 @@ ucs_status_t ucp_worker_discard_uct_ep_pending_cb(uct_pending_req_t *self)
     }
 
     uct_completion_update_status(&req->send.state.uct_comp, status);
-    ucp_worker_discard_uct_ep_flush_comp(&req->send.state.uct_comp);
+    req->send.state.uct_comp.func(&req->send.state.uct_comp);
     return UCS_OK;
 }
 
@@ -3601,7 +3615,8 @@ ucp_worker_discard_tl_uct_ep(ucp_ep_h ucp_ep, uct_ep_h uct_ep,
                              ucp_rsc_index_t rsc_index,
                              unsigned ep_flush_flags,
                              ucp_send_nbx_callback_t discarded_cb,
-                             void *discarded_cb_arg)
+                             void *discarded_cb_arg,
+                             uct_completion_callback_t flush_comp_cb)
 {
     ucp_worker_h worker = ucp_ep->worker;
     ucp_request_t *req;
@@ -3638,7 +3653,7 @@ ucp_worker_discard_tl_uct_ep(ucp_ep_h ucp_ep, uct_ep_h uct_ep,
     req->flags                              = UCP_REQUEST_FLAG_RELEASED;
     req->send.ep                            = ucp_ep;
     req->send.uct.func                      = ucp_worker_discard_uct_ep_pending_cb;
-    req->send.state.uct_comp.func           = ucp_worker_discard_uct_ep_flush_comp;
+    req->send.state.uct_comp.func           = flush_comp_cb;
     req->send.state.uct_comp.count          = 0;
     req->send.state.uct_comp.status         = UCS_OK;
     req->send.discard_uct_ep.uct_ep         = uct_ep;
@@ -3653,6 +3668,37 @@ ucp_worker_discard_tl_uct_ep(ucp_ep_h ucp_ep, uct_ep_h uct_ep,
 
     ucp_worker_discard_uct_ep_progress(req);
     return UCS_INPROGRESS;
+}
+
+ucp_lane_index_t *ucp_worker_reconfigure_ep_pop(ucp_ep_h ep)
+{
+    ucp_worker_reconfigure_ep_hash_t *h = &ep->worker->reconfigure_ep_hash;
+    khiter_t it;
+    ucp_lane_index_t *lanes2remote;
+
+    it = kh_get(ucp_worker_reconfigure_ep_hash, h, ep);
+    ucs_assert(it != kh_end(h));
+    lanes2remote = kh_value(h, it);
+
+    kh_del(ucp_worker_reconfigure_ep_hash, h, it);
+    return lanes2remote;
+}
+
+ucs_status_t ucp_worker_reconfigure_ep_push(ucp_ep_h ep, ucp_lane_index_t *lanes2remote)
+{
+    ucp_worker_reconfigure_ep_hash_t *h = &ep->worker->reconfigure_ep_hash;
+    khiter_t it;
+    int ret;
+
+    it = kh_put(ucp_worker_reconfigure_ep_hash, h, ep, &ret);
+    ucs_assert(ret != UCS_KH_PUT_KEY_PRESENT);
+
+    if (ret == UCS_KH_PUT_FAILED) {
+        return UCS_ERR_NO_RESOURCE;
+    }
+
+    kh_value(h, it) = lanes2remote;
+    return UCS_OK;
 }
 
 static uct_ep_h ucp_worker_discard_wireup_ep(
@@ -3677,6 +3723,19 @@ static uct_ep_h ucp_worker_discard_wireup_ep(
     return is_owner ? uct_ep : NULL;
 }
 
+int ucp_worker_discarded_ep_is_flushed(ucp_ep_h ep)
+{
+    ucp_request_t *req;
+
+    kh_foreach_value(&ep->worker->discard_uct_ep_hash, req, {
+        if ((req->send.ep == ep) && !req->send.flush.sw_done) {
+            return 0;
+        }
+    })
+
+    return 1;
+}
+
 int ucp_worker_is_uct_ep_discarding(ucp_worker_h worker, uct_ep_h uct_ep)
 {
     UCP_WORKER_THREAD_CS_CHECK_IS_BLOCKED(worker);
@@ -3691,11 +3750,16 @@ ucs_status_t ucp_worker_discard_uct_ep(ucp_ep_h ucp_ep, uct_ep_h uct_ep,
                                        uct_pending_purge_callback_t purge_cb,
                                        void *purge_arg,
                                        ucp_send_nbx_callback_t discarded_cb,
-                                       void *discarded_cb_arg)
+                                       void *discarded_cb_arg,
+                                       uct_completion_callback_t flush_comp_cb)
 {
     UCP_WORKER_THREAD_CS_CHECK_IS_BLOCKED(ucp_ep->worker);
     ucs_assert(uct_ep != NULL);
     ucs_assert(purge_cb != NULL);
+
+    if (flush_comp_cb == NULL) {
+        flush_comp_cb = ucp_worker_discard_uct_ep_flush_comp;
+    }
 
     uct_ep_pending_purge(uct_ep, purge_cb, purge_arg);
 
@@ -3708,7 +3772,7 @@ ucs_status_t ucp_worker_discard_uct_ep(ucp_ep_h ucp_ep, uct_ep_h uct_ep,
     }
 
     return ucp_worker_discard_tl_uct_ep(ucp_ep, uct_ep, rsc_index, ep_flush_flags,
-                                        discarded_cb, discarded_cb_arg);
+                                        discarded_cb, discarded_cb_arg, flush_comp_cb);
 }
 
 void ucp_worker_vfs_refresh(void *obj)

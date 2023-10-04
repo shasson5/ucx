@@ -1778,7 +1778,7 @@ protected:
 public:
     static void get_test_variants(std::vector<ucp_test_variant> &variants)
     {
-        add_variant(variants, UCP_FEATURE_TAG);
+        add_variant_with_value(variants, UCP_FEATURE_TAG, TEST_TAG, "tag");
     }
 };
 
@@ -1843,6 +1843,39 @@ UCS_TEST_SKIP_COND_P(test_ucp_wireup_reconfigure, serial_all_reuse,
 
     send_after("rc_mlx5", false);
     ASSERT_EQ(sender().ep()->cfg_index, old_cfg_index);
+}
+
+UCS_TEST_SKIP_COND_P(test_ucp_wireup_reconfigure, pending_not_empty,
+                     !has_transport("ib"))
+{
+    if (!has_resource(sender(), "rc_mlx5")) {
+        UCS_TEST_SKIP_R("IB transport is not present");
+    }
+
+    send_before("rc_mlx5");
+
+    std::vector<void*> reqs;
+    for (int i = 0; i < 3000; ++ i) {
+        send_nb(sender().ep(), 1000, 1, reqs, i + 1);
+    }
+
+    sender().ucph()->config.est_num_eps   = 128;
+    receiver().ucph()->config.est_num_eps = 128;
+
+    UCS_ASYNC_BLOCK(&sender().worker()->async);
+    ucp_wireup_send_pre_request(sender().ep());
+    UCS_ASYNC_UNBLOCK(&sender().worker()->async);
+
+    for (int i = 0 ; i < 3; ++ i) {
+        progress();
+    }
+
+    ucp_ep_print_info(sender().ep(), stdout);
+    send_nb(sender().ep(), 1000, 1, reqs, 400);
+
+    for (int i = 0; i < 300; ++ i) {
+        recv_b(receiver().worker(), receiver().ep(), 1000, 1, i + 1);
+    }
 }
 
 UCP_INSTANTIATE_TEST_CASE_TLS(test_ucp_wireup_reconfigure, ib, "ib")

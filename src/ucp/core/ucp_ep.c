@@ -1133,7 +1133,8 @@ out_resolve_remote_id:
     if ((context->config.ext.resolve_remote_ep_id == UCS_CONFIG_ON) ||
         ((context->config.ext.resolve_remote_ep_id == UCS_CONFIG_AUTO) &&
          (ep_init_flags & UCP_EP_INIT_ERR_MODE_PEER_FAILURE) &&
-         ucp_worker_keepalive_is_enabled(worker))) {
+         ucp_worker_keepalive_is_enabled(worker))
+         || context->config.ext.usage_tracker_enable) {
         /* If resolving remote ID forced by configuration or PEER_FAILURE
          * and keepalive were requested, resolve remote endpoint ID prior to
          * communicating with a peer to make sure that remote peer's endpoint
@@ -1443,7 +1444,7 @@ static void ucp_ep_discard_lanes(ucp_ep_h ep, ucs_status_t discard_status)
                                            ucp_ep_err_pending_purge,
                                            UCS_STATUS_PTR(discard_status),
                                            ucp_ep_discard_lanes_callback,
-                                           discard_arg);
+                                           discard_arg, NULL);
         if (status == UCS_INPROGRESS) {
             ++discard_arg->discard_counter;
         }
