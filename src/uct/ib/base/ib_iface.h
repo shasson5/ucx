@@ -204,6 +204,9 @@ struct uct_ib_iface_config {
     /* Length of subnet prefix for reachability check */
     unsigned long           rocev2_subnet_pfx_len;
 
+    /* IP address of subnet prefix for GID selection */
+    char                   *rocev2_subnet_address;
+
     /* Multiplier for RoCE LAG UDP source port calculation */
     unsigned                roce_path_factor;
 

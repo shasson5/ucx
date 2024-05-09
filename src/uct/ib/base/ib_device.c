@@ -875,8 +875,51 @@ int uct_ib_device_test_roce_gid_index(uct_ib_device_t *dev, uint8_t port_num,
     return 1;
 }
 
+static int
+uct_ib_device_roce_subnet_enabled(const uct_ib_iface_config_t *config)
+{
+    return strlen(config->rocev2_subnet_address) > 0;
+}
+
+static int
+uct_ib_device_match_roce_subnet(const uct_ib_device_gid_info_t *gid_info,
+                                const uct_ib_iface_config_t *config,
+                                unsigned prefix_bits)
+{
+    ucs_status_t status;
+    struct sockaddr_storage storage;
+    void *subnet_addr;
+    uint8_t prefix_len;
+
+    if (!uct_ib_device_subnet_address_enabled(config)) {
+        return 1;
+    }
+
+    status = ucs_sock_ipstr_to_sockaddr(config->rocev2_subnet_address, storage);
+    if (status != UCS_OK) {
+//        ucs_warn();
+        return 0;
+    }
+
+    subnet_addr = ucs_sockaddr_get_inet_addr(storage);
+    if (subnet_addr == NULL) {
+//        ucs_warn();
+        return 0;
+    }
+
+    status = uct_ib_iface_init_roce_addr_prefix(gid_info, config, &prefix_len);
+    if (status != UCS_OK) {
+//        ucs_warn();
+        return 0;
+    }
+
+    return uct_ib_iface_roce_is_reachable(gid_info, subnet_addr,
+            prefix_len);
+}
+
 ucs_status_t uct_ib_device_select_gid(uct_ib_device_t *dev, uint8_t port_num,
-                                      uct_ib_device_gid_info_t *gid_info)
+                                      uct_ib_device_gid_info_t *gid_info,
+                                      const uct_ib_iface_config_t *config)
 {
     static const uct_ib_roce_version_info_t roce_prio[] = {
         {UCT_IB_DEVICE_ROCE_V2, AF_INET},
@@ -906,13 +949,20 @@ ucs_status_t uct_ib_device_select_gid(uct_ib_device_t *dev, uint8_t port_num,
 
             if ((roce_prio[prio_idx].ver         == gid_info_tmp.roce_info.ver) &&
                 (roce_prio[prio_idx].addr_family == gid_info_tmp.roce_info.addr_family) &&
-                uct_ib_device_test_roce_gid_index(dev, port_num, &gid_info_tmp.gid, i)) {
+                uct_ib_device_test_roce_gid_index(dev, port_num, &gid_info_tmp.gid, i) &&
+                uct_ib_device_match_roce_subnet(&gid_info_tmp, config)) {
 
                 gid_info->gid_index = i;
                 gid_info->roce_info = gid_info_tmp.roce_info;
                 goto out_print;
             }
         }
+    }
+
+    if (uct_ib_device_subnet_address_enabled(config)) {
+//        ucs_error("subnet was not found, fallback to default");
+          status = UCS_ERR_INVALID_PARAM;
+          goto out;
     }
 
     gid_info->gid_index             = UCT_IB_DEVICE_DEFAULT_GID_INDEX;
