@@ -887,14 +887,8 @@ ucs_status_t ucs_sock_port_from_string(const char *port_str, uint16_t *port)
     return UCS_OK;
 }
 
-int ucs_sockaddr_cmp(const struct sockaddr *sa1,
-                     const struct sockaddr *sa2,
-                     ucs_status_t *status_p)
+void get_sockaddr_fields()
 {
-    int result          = 1;
-    uint16_t port1      = 0, port2 = 0;
-    ucs_status_t status = UCS_OK;
-
     if (!ucs_sockaddr_is_known_af(sa1) ||
         !ucs_sockaddr_is_known_af(sa2)) {
         ucs_error("unknown address family: %d",
@@ -911,20 +905,35 @@ int ucs_sockaddr_cmp(const struct sockaddr *sa1,
 
     switch (sa1->sa_family) {
     case AF_INET:
-        result = memcmp(&UCS_SOCKET_INET_ADDR(sa1),
-                        &UCS_SOCKET_INET_ADDR(sa2),
-                        sizeof(UCS_SOCKET_INET_ADDR(sa1)));
+        ipaddr1   = &UCS_SOCKET_INET_ADDR(sa1);
+        ipaddr2   = &UCS_SOCKET_INET_ADDR(sa2);
+        addr_size = sizeof(UCS_SOCKET_INET_ADDR(sa1));
         port1 = ntohs(UCS_SOCKET_INET_PORT(sa1));
         port2 = ntohs(UCS_SOCKET_INET_PORT(sa2));
         break;
     case AF_INET6:
-        result = memcmp(&UCS_SOCKET_INET6_ADDR(sa1),
-                        &UCS_SOCKET_INET6_ADDR(sa2),
-                        sizeof(UCS_SOCKET_INET6_ADDR(sa1)));
+        ipaddr1   = &UCS_SOCKET_INET6_ADDR(sa1);
+        ipaddr2   = &UCS_SOCKET_INET6_ADDR(sa2);
+        addr_size = sizeof(UCS_SOCKET_INET6_ADDR(sa1));
         port1 = ntohs(UCS_SOCKET_INET6_PORT(sa1));
         port2 = ntohs(UCS_SOCKET_INET6_PORT(sa2));
         break;
     }
+}
+
+int ucs_sockaddr_cmp(const struct sockaddr *sa1,
+                     const struct sockaddr *sa2,
+                     ucs_status_t *status_p)
+{
+    int result          = 1;
+    uint16_t port1      = 0, port2 = 0;
+    ucs_status_t status = UCS_OK;
+    const void *ipaddr1, *ipaddr2;
+    size_t addr_size;
+
+    get_sockaddr_fields();
+
+    result = memcmp(ipaddr1, ipaddr2, addr_size);
 
     if (!result && (port1 != port2)) {
         result = (int)port1 - (int)port2;
@@ -949,6 +958,40 @@ int ucs_sockaddr_ip_cmp(const struct sockaddr *sa1, const struct sockaddr *sa2)
                   ucs_sockaddr_get_inet_addr(sa2),
                   (sa1->sa_family == AF_INET) ?
                   UCS_IPV4_ADDR_LEN : UCS_IPV6_ADDR_LEN);
+}
+
+int
+ucs_sockaddr_match_subnet(const struct sockaddr *sa1,
+                          const struct sockaddr *sa2,
+                          unsigned prefix_bits)
+{
+    char ip1_str[UCS_SOCKADDR_STRING_LEN];
+    char ip2_str[UCS_SOCKADDR_STRING_LEN];
+    const void *ipaddr1, *ipaddr2;
+    size_t addr_size;
+    ucs_status_t status;
+    int ret;
+
+    get_sockaddr_fields(&ipaddr1, &ipaddr2, &addr_size, &port1, &port2);
+
+    /* sanity check on the subnet mask size (bits belonging to the prefix) */
+    ucs_assert((prefix_bits / 8) <= addr_size);
+
+    /* check if the addresses have matching prefixes */
+    ret = ucs_bitwise_is_equal(ipaddr1, ipaddr2, prefix_bits);
+
+    if ((ucs_sockaddr_get_ipstr(sa1, ip1_str, UCS_SOCKADDR_STRING_LEN) == UCS_OK) &&
+        (ucs_sockaddr_get_ipstr(sa2, ip2_str, UCS_SOCKADDR_STRING_LEN) == UCS_OK)) {
+        ucs_debug(ret ? "IP addresses match with a %u-bit prefix: local IP is %s,"
+                        " remote IP is %s" :
+                        "IP addresses do not match with a %u-bit prefix. local IP"
+                        " is %s, remote IP is %s",
+                  prefix_bits, ip1_str, ip2_str);
+    } else {
+        ucs_debug("failed to get ipstr (%p,%p)", sa1, sa2);
+    }
+
+    return ret;
 }
 
 ucs_status_t ucs_sockaddr_set_inaddr_any(struct sockaddr *saddr, sa_family_t af)

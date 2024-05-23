@@ -175,6 +175,12 @@ ucs_config_field_t uct_ib_iface_config_table[] = {
    " - <num> - Specify a numeric bit-length value for the subnet prefix",
    ucs_offsetof(uct_ib_iface_config_t, rocev2_subnet_pfx_len), UCS_CONFIG_TYPE_ULUNITS},
 
+  {"ROCE_SUBNET_FILTER_LIST", "",
+   "List of allowed/excluded subnets to filter RoCE GID entries by. Each subnet contains an \n"
+   "address and a netmask in the form x.x.x.x/y.\n"
+   "It must not be used together with UCX_IB_GID_INDEX.\n",
+   ucs_offsetof(uct_ib_iface_config_t, rocev2_subnet_filter_list), UCS_CONFIG_TYPE_ALLOW_LIST},
+
   {"ROCE_PATH_FACTOR", "1",
    "Multiplier for RoCE LAG UDP source port calculation. The UDP source port\n"
    "is typically used by switches and network adapters to select a different\n"
@@ -614,6 +620,24 @@ ucs_status_t uct_ib_iface_get_device_address(uct_iface_h tl_iface,
     return UCS_OK;
 }
 
+static ucs_status_t uct_ib_iface_roce_to_sockaddr(const union ibv_gid *gid,
+                                                  sa_family_t addr_af,
+                                                  struct sockaddr *sock_addr)
+{
+    size_t addr_offset;
+    size_t addr_size;
+    ucs_status_t status;
+
+    status = ucs_sockaddr_inet_addr_size(addr_af, &addr_size);
+    if (status != UCS_OK) {
+        return status;
+    }
+
+    addr_offset = sizeof(union ibv_gid) - addr_size;
+    set_sockaddr(addr_af, UCS_PTR_BYTE_OFFSET(gid, addr_offset), 0);
+    return UCS_OK;
+}
+
 static int
 uct_ib_iface_roce_is_reachable(const uct_ib_device_gid_info_t *local_gid_info,
                                const uct_ib_address_t *remote_ib_addr,
@@ -625,10 +649,7 @@ uct_ib_iface_roce_is_reachable(const uct_ib_device_gid_info_t *local_gid_info,
     uct_ib_roce_version_t remote_roce_ver;
     sa_family_t remote_ib_addr_af;
     char local_str[128], remote_str[128];
-    uint8_t *local_addr, *remote_addr;
-    ucs_status_t status;
-    size_t addr_offset;
-    size_t addr_size;
+    struct sockaddr_storage local_addr, remote_addr;
     int ret;
 
     /* check for wildcards in the RoCE version (RDMACM or non-RoCE cases) */
@@ -642,16 +663,8 @@ uct_ib_iface_roce_is_reachable(const uct_ib_device_gid_info_t *local_gid_info,
         return 1;
     }
 
-    /* check the address family */
-    remote_ib_addr_af = uct_ib_address_flags_get_roce_af(remote_ib_addr_flags);
-
-    if (local_ib_addr_af != remote_ib_addr_af) {
-        ucs_assert(local_ib_addr_af != 0);
-        ucs_debug("different addr_family detected. local %s remote %s",
-                  ucs_sockaddr_address_family_str(local_ib_addr_af),
-                  ucs_sockaddr_address_family_str(remote_ib_addr_af));
-        return 0;
-    }
+    /* verify address is RoCE */
+    ucs_assert(local_ib_addr_af != 0);
 
     /* check the RoCE version */
     ucs_assert(local_roce_ver != UCT_IB_DEVICE_ROCE_ANY);
@@ -674,29 +687,22 @@ uct_ib_iface_roce_is_reachable(const uct_ib_device_gid_info_t *local_gid_info,
         return 1; /* We assume it is, but actually there's no good test */
     }
 
-    status = ucs_sockaddr_inet_addr_size(local_ib_addr_af, &addr_size);
-    if (status != UCS_OK) {
-        ucs_error("failed to detect RoCE address size");
+    remote_gid        = (union ibv_gid*)(&remote_ib_addr->flags + 1);
+    remote_ib_addr_af = uct_ib_address_flags_get_roce_af(remote_ib_addr_flags);
+
+    if ((uct_ib_iface_roce_to_sockaddr(local_gid_info->gid, local_ib_addr_af,
+                                      &local_addr) != UCS_OK) ||
+        (uct_ib_iface_roce_to_sockaddr(remote_gid, remote_ib_addr_af,
+                                      &remote_addr) != UCS_OK)) {
+         ucs_error("failed to convert GID to sockaddr");
+         return 0;
+     }
+
+    if (ucs_sockaddr_match_subnet(local_addr, remote_addr, prefix_bits, &ret)
+            != UCS_OK) {
+        ucs_error("failed to match subnet");
         return 0;
     }
-
-    addr_offset = sizeof(union ibv_gid) - addr_size;
-    local_addr  = UCS_PTR_BYTE_OFFSET(&local_gid_info->gid, addr_offset);
-    remote_addr = UCS_PTR_BYTE_OFFSET(&remote_ib_addr->flags + 1, addr_offset);
-
-    /* sanity check on the subnet mask size (bits belonging to the prefix) */
-    ucs_assert((prefix_bits / 8) <= addr_size);
-
-    /* check if the addresses have matching prefixes */
-    ret = ucs_bitwise_is_equal(local_addr, remote_addr, prefix_bits);
-
-    ucs_debug(ret ? "IP addresses match with a %u-bit prefix: local IP is %s,"
-                    " remote IP is %s" :
-                    "IP addresses do not match with a %u-bit prefix. local IP"
-                    " is %s, remote IP is %s",
-              prefix_bits,
-              inet_ntop(local_ib_addr_af, local_addr, local_str, 128),
-              inet_ntop(remote_ib_addr_af, remote_addr, remote_str, 128));
 
     return ret;
 }
@@ -1208,7 +1214,8 @@ int uct_ib_iface_is_roce_v2(uct_ib_iface_t *iface)
 }
 
 ucs_status_t uct_ib_iface_init_roce_gid_info(uct_ib_iface_t *iface,
-                                             unsigned long cfg_gid_index)
+                                             unsigned long cfg_gid_index,
+                                             const ucs_config_allow_list_t *subnets_list)
 {
     uct_ib_device_t *dev = uct_ib_iface_device(iface);
     uint8_t port_num     = iface->config.port_num;
@@ -1216,7 +1223,7 @@ ucs_status_t uct_ib_iface_init_roce_gid_info(uct_ib_iface_t *iface,
     ucs_assert(uct_ib_iface_is_roce(iface));
 
     if (cfg_gid_index == UCS_ULUNITS_AUTO) {
-        return uct_ib_device_select_gid(dev, port_num, &iface->gid_info);
+        return uct_ib_device_select_gid(dev, port_num, subnets_list, &iface->gid_info);
     }
 
     return uct_ib_device_query_gid_info(dev->ibv_context,
@@ -1349,7 +1356,8 @@ uct_ib_iface_init_gid_info(uct_ib_iface_t *iface,
 
     /* Fill the gid index and the RoCE version */
     if (uct_ib_iface_is_roce(iface)) {
-        status = uct_ib_iface_init_roce_gid_info(iface, cfg_gid_index);
+        status = uct_ib_iface_init_roce_gid_info(iface, cfg_gid_index,
+                &config->rocev2_subnet_filter_list);
         if (status != UCS_OK) {
             goto out;
         }

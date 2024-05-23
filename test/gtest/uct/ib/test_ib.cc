@@ -380,7 +380,7 @@ public:
          * ib_iface so we can use a dummy one here.
          * this function will set the gid_index in the dummy ib_iface. */
         status = uct_ib_iface_init_roce_gid_info(&dummy_ib_iface,
-                                                 md_config->ext.gid_index);
+                                                 md_config->ext.gid_index, NULL);
         ASSERT_UCS_OK(status);
 
         gid_index = dummy_ib_iface.gid_info.gid_index;

@@ -326,6 +326,7 @@ const uct_ib_device_spec_t* uct_ib_device_spec(uct_ib_device_t *dev);
  */
 ucs_status_t uct_ib_device_select_gid(uct_ib_device_t *dev,
                                       uint8_t port_num,
+                                      const ucs_config_allow_list_t *subnets_array,
                                       uct_ib_device_gid_info_t *gid_info);
 
 
