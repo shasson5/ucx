@@ -875,51 +875,7 @@ int uct_ib_device_test_roce_gid_index(uct_ib_device_t *dev, uint8_t port_num,
     return 1;
 }
 
-//static int
-//uct_ib_device_roce_subnet_enabled(const ucs_config_allow_list_t *subnets_array)
-//{
-////    return subnet_arr.size > 0;
-////    return strlen(config->rocev2_subnet_address) > 0;
-//}
-
-static int
-uct_ib_device_match_roce_subnet(const uct_ib_device_gid_info_t *gid_info,
-                                const ucs_config_allow_list_t *subnets_list)
-{
-    ucs_status_t status;
-    struct sockaddr_storage sockaddr, gid_sockaddr;
-    const void *subnet_addr;
-    uint8_t prefix_len;
-//    unsigned subnet_idx;
-//
-//    if (!uct_ib_device_subnet_address_enabled(subnets_array)) {
-//        return 1;
-//    }
-//
-//    for (subnet_idx = 0; subnet_idx < subnets_array->array.count; ++ subnet_idx) {
-//        char *subnet = subnets_array->array.names[subnet_idx];
-//    }
-//
-//    return 0;
-
-    status = ucs_sock_ipstr_to_sockaddr("2.1.3.144", &sockaddr);
-    if (status != UCS_OK) {
-//        ucs_warn();
-        return 0;
-    }
-
-    subnet_addr = ucs_sockaddr_get_inet_addr((struct sockaddr *)&sockaddr);
-    if (subnet_addr == NULL) {
-//        ucs_warn();
-        return 0;
-    }
-
-    uct_ib_iface_roce_to_sockaddr(gid_info->gid, gid_info->roce_info.addr_family, &gid_sockaddr);
-    return ucs_sockaddr_match_subnet(gid_sockaddr, sockaddr, prefix_len);
-}
-
 ucs_status_t uct_ib_device_select_gid(uct_ib_device_t *dev, uint8_t port_num,
-                                      const ucs_config_allow_list_t *subnets_list,
                                       uct_ib_device_gid_info_t *gid_info)
 {
     static const uct_ib_roce_version_info_t roce_prio[] = {
@@ -933,6 +889,9 @@ ucs_status_t uct_ib_device_select_gid(uct_ib_device_t *dev, uint8_t port_num,
     int priorities_arr_len  = ucs_static_array_size(roce_prio);
     uct_ib_device_gid_info_t gid_info_tmp;
     int i, prio_idx;
+    struct sockaddr_storage sockaddr;
+    const void *subnet_addr;
+    uint8_t *gid;
 
     ucs_assert(uct_ib_device_is_port_roce(dev, port_num));
 
@@ -950,21 +909,29 @@ ucs_status_t uct_ib_device_select_gid(uct_ib_device_t *dev, uint8_t port_num,
 
             if ((roce_prio[prio_idx].ver         == gid_info_tmp.roce_info.ver) &&
                 (roce_prio[prio_idx].addr_family == gid_info_tmp.roce_info.addr_family) &&
-                uct_ib_device_test_roce_gid_index(dev, port_num, &gid_info_tmp.gid, i) &&
-                uct_ib_device_match_roce_subnet(&gid_info_tmp, subnets_list)) {
+                uct_ib_device_test_roce_gid_index(dev, port_num, &gid_info_tmp.gid, i)) {
 
-                gid_info->gid_index = i;
-                gid_info->roce_info = gid_info_tmp.roce_info;
-                goto out_print;
+                status = ucs_sock_ipstr_to_sockaddr("172.16.27.71", &sockaddr);
+                if (status != UCS_OK) {
+                    printf("ucs_sock_ipstr_to_sockaddr failed\n");
+                }
+
+                subnet_addr = ucs_sockaddr_get_inet_addr((struct sockaddr *)&sockaddr);
+                if (subnet_addr == NULL) {
+                    printf("ucs_sockaddr_get_inet_addr failed\n");
+                }
+
+                gid = ((uint8_t*)&gid_info_tmp.gid) + 12;
+                printf("subnet match: %u.%u.%u.%u\n", gid[0],gid[1],gid[2],gid[3]);
+
+                if (ucs_bitwise_is_equal(subnet_addr, gid, 24)) {
+                    gid_info->gid_index = i;
+                    gid_info->roce_info = gid_info_tmp.roce_info;
+                    goto out_print;
+                }
             }
         }
     }
-//
-//    if (uct_ib_device_subnet_address_enabled(subnets_array)) {
-////        ucs_error("subnet was not found, fallback to default");
-//          status = UCS_ERR_INVALID_PARAM;
-//          goto out;
-//    }
 
     gid_info->gid_index             = UCT_IB_DEVICE_DEFAULT_GID_INDEX;
     gid_info->roce_info.ver         = UCT_IB_DEVICE_ROCE_V1;
