@@ -710,7 +710,7 @@ ucp_wireup_process_request(ucp_worker_h worker, ucp_ep_h ep,
             goto err_set_ep_failed;
         }
 
-        tl_bitmap  = ucp_wireup_get_ep_tl_bitmap(ep,
+        tl_bitmap = ucp_wireup_get_ep_tl_bitmap(ep,
                                                  ucp_ep_config(ep)->p2p_lanes);
         ucp_ep_update_flags(ep, UCP_EP_FLAG_LOCAL_CONNECTED, 0);
 
@@ -1516,20 +1516,36 @@ ucp_wireup_is_reconfiguration_supported(ucp_ep_h ep,
                                         ucp_worker_cfg_index_t new_cfg_index)
 {
     const ucp_ep_config_t *new_cfg;
+    ucp_wireup_ep_t *wireup_ep;
+    uct_ep_h uct_ep;
     ucp_lane_index_t lane;
 
     if (ucp_ep_has_cm_lane(ep)) {
         return 1;
     }
 
-    /* Verify no lanes are reused, by ensuring they were set to NULL */
+    new_cfg = ucp_worker_ep_config(ep->worker, new_cfg_index);
+    ucs_assert(new_cfg->key.wireup_msg_lane != UCP_NULL_LANE);
+
+    /* Verify no lanes are reused, by ensuring they are set to NULL.
+     * Skip wireup lane, as it's already initialized in
+     * ucp_wireup_replace_wireup_msg_lane. */
     for (lane = 0; lane < ucp_ep_num_lanes(ep); ++lane) {
-        if (ucp_ep_get_lane(ep, lane) != NULL) {
+        if ((ucp_ep_get_lane(ep, lane) != NULL) &&
+            (lane != new_cfg->key.wireup_msg_lane)) {
             return 0;
         }
     }
 
-    new_cfg = ucp_worker_ep_config(ep->worker, new_cfg_index);
+    uct_ep = ucp_ep_get_lane(ep, new_cfg->key.wireup_msg_lane);
+    ucs_assert(uct_ep != NULL);
+
+    /* Verify wireup lane has only aux tl initialized */
+    wireup_ep = ucp_wireup_ep(uct_ep);
+    if ((wireup_ep == NULL) || (wireup_ep->aux_ep == NULL) ||
+        ucp_wireup_ep_has_next_ep(wireup_ep)) {
+        return 0;
+    }
 
     /* Verify both old/new configurations have only p2p lanes */
     return (ucp_wireup_are_all_lanes_p2p(ucp_ep_config(ep)) &&
