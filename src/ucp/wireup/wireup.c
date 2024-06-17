@@ -1342,6 +1342,53 @@ static void ucp_wireup_discard_uct_eps(ucp_ep_h ep, uct_ep_h *uct_eps,
     }
 }
 
+static int ucp_wireup_are_all_lanes_p2p(ucp_ep_h ep, const ucp_ep_config_key_t *key)
+{
+    ucp_lane_index_t lane;
+    ucp_rsc_index_t rsc_index;
+
+    for (lane = 0; lane < key->num_lanes; ++lane) {
+        rsc_index = ucp_ep_get_rsc_index(ep, lane);
+        ucs_assert(rsc_index != UCP_NULL_RESOURCE);
+
+        if (!ucp_ep_config_connect_p2p(ep->worker, key, rsc_index)) {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+static int
+ucp_wireup_can_reconfigure(ucp_ep_h ep,
+                           const ucp_ep_config_key_t *new_key,
+                           const ucp_unpacked_address_t *remote_address,
+                           const unsigned *addr_indices)
+{
+    ucp_lane_index_t reuse_lane_map[UCP_MAX_LANES];
+    const ucp_ep_config_key_t *old_key;
+    ucp_lane_index_t lane;
+
+    if (ucp_ep_has_cm_lane(ep)) {
+        return 1;
+    }
+
+    old_key = &ucp_ep_config(ep)->key;
+    ucp_ep_config_lanes_intersect(old_key, new_key, ep, remote_address,
+                                  addr_indices, reuse_lane_map);
+
+    /* Verify no lanes are reused */
+    for (lane = 0; lane < ucp_ep_num_lanes(ep); ++lane) {
+        if (reuse_lane_map[lane] != UCP_NULL_LANE) {
+            return 0;
+        }
+    }
+
+    /* Verify both old/new configurations have only p2p lanes */
+    return ucp_wireup_are_all_lanes_p2p(ep, old_key) &&
+           ucp_wireup_are_all_lanes_p2p(ep, new_key);
+}
+
 static ucp_lane_index_t
 ucp_wireup_find_non_reused_lane(ucp_ep_h ep, const ucp_ep_config_key_t *new_key)
 {
@@ -1362,6 +1409,7 @@ ucp_wireup_replace_wireup_msg_lane(ucp_ep_h ep, ucp_ep_config_key_t *new_key,
     ucp_lane_index_t old_lane, new_lane;
     uct_ep_h old_ep, new_ep;
     ucs_status_t status;
+    ucp_rsc_index_t rsc_index;
 
     /* Set wireup EP for new configuration's wireup lane */
     if (ucp_ep_has_cm_lane(ep)) {
@@ -1382,12 +1430,15 @@ ucp_wireup_replace_wireup_msg_lane(ucp_ep_h ep, ucp_ep_config_key_t *new_key,
                        ucp_ep_config(ep)->key.wireup_msg_lane :
                        ucp_wireup_get_msg_lane(ep, UCP_WIREUP_MSG_REQUEST);
     old_ep   = ucp_ep_get_lane(ep, old_lane);
-    ucs_assertv(ucp_wireup_ep_test(old_ep), "old_ep=%p", old_ep);
+    ucs_assert(ucp_wireup_ep_test(old_ep));
+
+    rsc_index = ucp_ep_get_rsc_index(ep, old_lane);
+    ucs_assert(rsc_index != UCP_NULL_RESOURCE);
 
     /* Move aux EP to new wireup lane */
     ucp_wireup_ep_set_aux(ucp_wireup_ep(new_ep),
                           ucp_wireup_ep_extract_msg_ep(ucp_wireup_ep(old_ep)),
-                          ucp_ep_get_rsc_index(ep, old_lane),
+                          rsc_index,
                           ucp_ep_is_lane_p2p(ep, old_lane));
 
     /* Remove old wireup_ep as it's not needed anymore.
@@ -1421,7 +1472,8 @@ ucp_wireup_check_config_intersect(ucp_ep_h ep, ucp_ep_config_key_t *new_key,
 
     *connect_lane_bitmap = UCS_MASK(new_key->num_lanes);
 
-    if (ep->cfg_index == UCP_WORKER_CFG_INDEX_NULL) {
+    if (!ucp_wireup_can_reconfigure(ep, new_key, remote_address, addr_indices) ||
+        (ep->cfg_index == UCP_WORKER_CFG_INDEX_NULL)) {
         /* nothing to intersect with */
         return ucp_ep_realloc_lanes(ep, new_key->num_lanes);
     }
@@ -1504,54 +1556,6 @@ ucp_wireup_check_config_intersect(ucp_ep_h ep, ucp_ep_config_key_t *new_key,
     return UCS_OK;
 }
 
-static int ucp_wireup_are_all_lanes_p2p(const ucp_ep_config_t *cfg)
-{
-    ucp_lane_map_t lanes_mask = UCS_MASK(cfg->key.num_lanes);
-
-    return (cfg->p2p_lanes & lanes_mask) == lanes_mask;
-}
-
-static int
-ucp_wireup_is_reconfiguration_supported(ucp_ep_h ep,
-                                        ucp_worker_cfg_index_t new_cfg_index)
-{
-    const ucp_ep_config_t *new_cfg;
-    ucp_wireup_ep_t *wireup_ep;
-    uct_ep_h uct_ep;
-    ucp_lane_index_t lane;
-
-    if (ucp_ep_has_cm_lane(ep)) {
-        return 1;
-    }
-
-    new_cfg = ucp_worker_ep_config(ep->worker, new_cfg_index);
-    ucs_assert(new_cfg->key.wireup_msg_lane != UCP_NULL_LANE);
-
-    /* Verify no lanes are reused, by ensuring they are set to NULL.
-     * Skip wireup lane, as it's already initialized in
-     * ucp_wireup_replace_wireup_msg_lane. */
-    for (lane = 0; lane < ucp_ep_num_lanes(ep); ++lane) {
-        if ((ucp_ep_get_lane(ep, lane) != NULL) &&
-            (lane != new_cfg->key.wireup_msg_lane)) {
-            return 0;
-        }
-    }
-
-    uct_ep = ucp_ep_get_lane(ep, new_cfg->key.wireup_msg_lane);
-    ucs_assert(uct_ep != NULL);
-
-    /* Verify wireup lane has only aux tl initialized */
-    wireup_ep = ucp_wireup_ep(uct_ep);
-    if ((wireup_ep == NULL) || (wireup_ep->aux_ep == NULL) ||
-        ucp_wireup_ep_has_next_ep(wireup_ep)) {
-        return 0;
-    }
-
-    /* Verify both old/new configurations have only p2p lanes */
-    return (ucp_wireup_are_all_lanes_p2p(ucp_ep_config(ep)) &&
-            ucp_wireup_are_all_lanes_p2p(new_cfg));
-}
-
 ucs_status_t ucp_wireup_init_lanes(ucp_ep_h ep, unsigned ep_init_flags,
                                    const ucp_tl_bitmap_t *local_tl_bitmap,
                                    const ucp_unpacked_address_t *remote_address,
@@ -1622,7 +1626,7 @@ ucs_status_t ucp_wireup_init_lanes(ucp_ep_h ep, unsigned ep_init_flags,
     cm_idx = ep->ext->cm_idx;
 
     if ((ep->cfg_index != UCP_WORKER_CFG_INDEX_NULL) &&
-        !ucp_wireup_is_reconfiguration_supported(ep, new_cfg_index)) {
+        !ucp_wireup_can_reconfigure(ep, &key, remote_address, addr_indices)) {
         /*
          * TODO handle a case where we have to change lanes and reconfigure the ep:
          *
