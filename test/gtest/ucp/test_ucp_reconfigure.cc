@@ -42,57 +42,9 @@ protected:
             m_transport = ucp_ep_get_tl_rsc(m_ep, m_ep->am_lane)->tl_name;
         }
 
-        static bool is_tl_scalable(const std::string &tl_name)
-        {
-            static const std::string scalable_tls[2] = {"dc_mlx5", "ud_mlx5"};
-
-            return std::find(std::begin(scalable_tls), std::end(scalable_tls),
-                             tl_name) != std::end(scalable_tls);
-        }
-
         ucp_lane_index_t num_lanes() const
         {
             return ucp_ep_config(m_ep)->key.num_lanes;
-        }
-
-        unsigned count_dc_resources() const
-        {
-            unsigned dc_count     = 0;
-            ucp_context_h context = m_ep->worker->context;
-            ucp_rsc_index_t tl_id;
-
-            UCS_STATIC_BITMAP_FOR_EACH_BIT(tl_id, &context->tl_bitmap) {
-                std::string tl_name = context->tl_rscs[tl_id].tl_rsc.tl_name;
-
-                if (tl_name == "dc_mlx5") {
-                    dc_count++;
-                }
-            }
-
-            return dc_count;
-        }
-
-        bool is_dc_enabled(const std::vector<ucp_rsc_index_t> &disabled_devs,
-                           ucp_rsc_index_t dev_index)
-        {
-            auto it = std::find(disabled_devs.begin(), disabled_devs.end(),
-                                dev_index);
-            if (it != disabled_devs.end()) {
-                return false;
-            }
-
-            ucp_rsc_index_t tl_id;
-            UCS_STATIC_BITMAP_FOR_EACH_BIT(tl_id,
-                                           &m_ep->worker->context->tl_bitmap) {
-                auto resource = &m_ep->worker->context->tl_rscs[tl_id];
-                if (resource->dev_index == dev_index) {
-                    if (std::string(resource->tl_rsc.tl_name) == "dc_mlx5") {
-                        return true;
-                    }
-                }
-            }
-
-            return false;
         }
 
         void verify(unsigned expected_reused, bool reconfigured = true)
@@ -161,12 +113,6 @@ protected:
     virtual unsigned msg_size()
     {
         return get_variant_value(2);
-    }
-
-    void connect()
-    {
-        sender().connect(&receiver(), get_ep_params());
-        receiver().connect(&sender(), get_ep_params());
     }
 
     void *send_nb(std::string &buffer, uint8_t data)
@@ -297,30 +243,6 @@ public:
             }
         }
     }
-
-//    void disable_dc_dev(unsigned dev_index)
-//    {
-//        if (count_resources(sender(), "dc_mlx5") == 0) {
-//            UCS_TEST_SKIP_R("no DC ifaces found");
-//        }
-//
-//        int dc_count = 0;
-//        ucp_rsc_index_t tl_id;
-//
-//        UCS_STATIC_BITMAP_FOR_EACH_BIT(tl_id, &sender().ucph()->tl_bitmap) {
-//            auto resource = &sender().ucph()->tl_rscs[tl_id];
-//
-//            if (std::string(resource->tl_rsc.tl_name) == "dc_mlx5") {
-//                dc_count++;
-//            }
-//
-//            if ((dc_count - 1) == dev_index) {
-//                UCS_STATIC_BITMAP_RESET(&m_tl_bitmap, tl_id);
-//                m_disabled_devs.push_back(resource->dev_index);
-//                break;
-//            }
-//        }
-//    }
 };
 
 UCS_TEST_SKIP_COND_P(test_ucp_reconfigure, race_all_reuse, is_self())
