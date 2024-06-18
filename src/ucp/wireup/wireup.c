@@ -1472,8 +1472,8 @@ ucp_wireup_check_config_intersect(ucp_ep_h ep, ucp_ep_config_key_t *new_key,
 
     *connect_lane_bitmap = UCS_MASK(new_key->num_lanes);
 
-    if (!ucp_wireup_can_reconfigure(ep, new_key, remote_address, addr_indices) ||
-        (ep->cfg_index == UCP_WORKER_CFG_INDEX_NULL)) {
+    if ((ep->cfg_index == UCP_WORKER_CFG_INDEX_NULL) ||
+        !ucp_wireup_can_reconfigure(ep, new_key, remote_address, addr_indices)) {
         /* nothing to intersect with */
         return ucp_ep_realloc_lanes(ep, new_key->num_lanes);
     }

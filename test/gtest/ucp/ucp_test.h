@@ -169,13 +169,14 @@ public:
         ucs::handle<ucp_ep_params_t*>   m_server_ep_params;
         const ucp_test_base             *m_test;
 
+    public:
+        void set_ep(ucp_ep_h ep, int worker_index, int ep_index);
+
     private:
         static void empty_send_completion(void *r, ucs_status_t status);
         static void accept_ep_cb(ucp_ep_h ep, void *arg);
         static void accept_conn_cb(ucp_conn_request_h conn_req, void *arg);
         static void reject_conn_cb(ucp_conn_request_h conn_req, void *arg);
-
-        void set_ep(ucp_ep_h ep, int worker_index, int ep_index);
 
         static ucs_log_func_rc_t
         hide_config_warns_logger(const char *file, unsigned line,
