@@ -24,13 +24,20 @@ extern "C" {
 
 class test_ucp_reconfigure : public ucp_test {
 protected:
-    class reconf_ep_t {
+    class reconfigured_entity : public entity {
     public:
-        reconf_ep_t(const entity &e) :
-            m_ep(e.ep()), m_cfg_index(e.ep()->cfg_index)
+        reconfigured_entity(const ucp_test_param &test_params,
+                            ucp_config_t* ucp_config,
+                            const ucp_worker_params_t& worker_params,
+                            const ucp_test *test_owner) :
+            entity(test_params, ucp_config, worker_params, test_owner)
+        {
+        }
+
+        void init()
         {
             for (ucp_lane_index_t lane = 0; lane < num_lanes(); ++lane) {
-                uct_ep_h uct_ep = ucp_ep_get_lane(e.ep(), lane);
+                uct_ep_h uct_ep = ucp_ep_get_lane(ep(), lane);
 
                 if (ucp_wireup_ep_test(uct_ep)) {
                     m_uct_eps.push_back(ucp_wireup_ep(uct_ep)->super.uct_ep);
@@ -39,30 +46,61 @@ protected:
                 }
             }
 
-            m_transport = ucp_ep_get_tl_rsc(m_ep, m_ep->am_lane)->tl_name;
+            m_cfg_index = ep()->cfg_index;
+            m_transport = ucp_ep_get_tl_rsc(ep(), ep()->am_lane)->tl_name;
+        }
+
+        void connect(const reconfigured_entity &other, const ucp_tl_bitmap_t &tl_bitmap)
+        {
+            //todo: check value of get_ep_params()
+            unsigned flags = ucp_worker_default_address_pack_flags(other.worker());
+            ucp_address_t *address;
+            ucs_status_t status;
+            size_t addr_len;
+
+            status = ucp_address_pack(other.worker(), other.ep(), &tl_bitmap, flags,
+                                      other.ucph()->config.ext.worker_addr_version,
+                                      NULL, UINT_MAX, &addr_len, (void**)&address);
+            ASSERT_UCS_OK(status);
+
+            ucp_ep_params_t ep_params = {
+                    .field_mask = UCP_EP_PARAM_FIELD_REMOTE_ADDRESS,
+                    .address = address
+            };
+
+            ucp_ep_h ep;
+            ASSERT_UCS_OK(ucp_ep_create(worker(), &ep_params, &ep));
+            m_workers[0].second.push_back(
+                            ucs::handle<ucp_ep_h, entity *>(ep, ucp_ep_destroy));
+
+            ucp_worker_release_address(other.worker(), address);
+            init();
         }
 
         ucp_lane_index_t num_lanes() const
         {
-            return ucp_ep_config(m_ep)->key.num_lanes;
+            return ucp_ep_config(ep())->key.num_lanes;
         }
 
         void verify(unsigned expected_reused, bool reconfigured = true)
         {
-            bool is_reconfigured = (m_ep->cfg_index != m_cfg_index);
+            bool is_reconfigured = (ep()->cfg_index != m_cfg_index);
             EXPECT_EQ(is_reconfigured, reconfigured);
-            EXPECT_LE(reused_count(), expected_reused);
 
-            auto config = ucp_ep_config(m_ep);
+            auto reused_count = std::count_if(m_uct_eps.begin(), m_uct_eps.end(),
+                                             [this](const uct_ep_h uct_ep) {
+                                                 return uct_ep_reused(uct_ep);
+                                              });
+            EXPECT_LE(reused_count, expected_reused);
 
             for (int i = 0; i < num_lanes(); ++i) {
-                const auto lane = config->key.rma_bw_lanes[i];
+                const auto lane = ucp_ep_config(ep())->key.rma_bw_lanes[i];
                 if (lane == UCP_NULL_LANE) {
                     break;
                 }
 
-                auto transport = ucp_ep_get_tl_rsc(m_ep, lane)->tl_name;
-                EXPECT_STREQ("rc_mlx5", transport);
+                auto transport = ucp_ep_get_tl_rsc(ep(), lane)->tl_name;
+                EXPECT_STREQ(m_transport.c_str(), transport);
             }
         }
 
@@ -70,7 +108,7 @@ protected:
         bool uct_ep_reused(uct_ep_h uct_ep) const
         {
             for (ucp_lane_index_t lane = 0; lane < num_lanes(); ++lane) {
-                if (ucp_ep_get_lane(m_ep, lane) == uct_ep) {
+                if (ucp_ep_get_lane(ep(), lane) == uct_ep) {
                     return true;
                 }
             }
@@ -78,15 +116,6 @@ protected:
             return false;
         }
 
-        unsigned reused_count() const
-        {
-            return std::count_if(m_uct_eps.begin(), m_uct_eps.end(),
-                                 [this](const uct_ep_h uct_ep) {
-                                     return uct_ep_reused(uct_ep);
-                                 });
-        }
-
-        ucp_ep_h m_ep;
         ucp_worker_cfg_index_t m_cfg_index;
         std::vector<uct_ep_h> m_uct_eps;
         std::string m_transport;
@@ -107,6 +136,10 @@ protected:
             UCS_TEST_SKIP_R("IB transport is not present");
         }
 
+        m_ent1 = new reconfigured_entity(GetParam(), m_ucp_config, get_worker_params(), this);
+        m_ent2 = new reconfigured_entity(GetParam(), m_ucp_config, get_worker_params(), this);
+        m_entities.push_back(m_ent1);
+        m_entities.push_front(m_ent2);
         m_reconfigure = false;
     }
 
@@ -115,44 +148,34 @@ protected:
         return get_variant_value(2);
     }
 
-    void *send_nb(std::string &buffer, uint8_t data)
+    void send_recv(unsigned count)
     {
         ucp_request_param_t param = {
             .op_attr_mask = UCP_OP_ATTR_FLAG_NO_IMM_CMPL
         };
-
-        buffer.resize(msg_size());
-        std::fill(buffer.begin(), buffer.end(), data);
-
-        return ucp_tag_send_nbx(sender().ep(), buffer.c_str(), msg_size(), 0,
-                                &param);
-    }
-
-    void send_recv(unsigned count)
-    {
+        std::string m_sbuf, m_rbuf;
         std::vector<void*> sreqs;
 
+        m_sbuf.resize(msg_size());
+        m_rbuf.resize(msg_size());
+
         for (int i = 0; i < count; ++i) {
-            sreqs.push_back(send_nb(m_sbuf, i + 1));
-            request_wait(recv_nb());
+            std::fill(m_sbuf.begin(), m_sbuf.end(), i + 1);
+
+            void *sreq = ucp_tag_send_nbx(sender().ep(), m_sbuf.c_str(),
+                                          msg_size(), 0, &param);
+            void *rreq = ucp_tag_recv_nbx(receiver().worker(), (void*)m_rbuf.c_str(),
+                                          msg_size(), 0, 0, &param);
+            request_wait(rreq);
+            sreqs.push_back(sreq);
         }
 
         requests_wait(sreqs);
     }
 
-    void *recv_nb()
-    {
-        ucp_request_param_t param = {0};
-        param.op_attr_mask        = UCP_OP_ATTR_FLAG_NO_IMM_CMPL;
-        m_rbuf.resize(msg_size());
-
-        return ucp_tag_recv_nbx(receiver().worker(), (void*)m_rbuf.c_str(),
-                                msg_size(), 0, 0, &param);
-    }
-
-    std::string m_sbuf;
-    std::string m_rbuf;
     bool m_reconfigure;
+    reconfigured_entity *m_ent1;
+    reconfigured_entity *m_ent2;
 
 public:
     static void get_test_variants(std::vector<ucp_test_variant> &variants)
@@ -171,53 +194,23 @@ public:
         add_variant_with_value(variants, UCP_FEATURE_TAG, 0, "");
     }
 
-    bool is_reconf_ep(const entity *e)
+    bool is_reconf_ep(const entity &e, const entity &other)
     {
-        const entity *other;
-        other = (e == &sender()) ? &receiver() : &sender();
-
-        return !(e->ep()->flags & UCP_EP_FLAG_CONNECT_REQ_QUEUED) &&
-               (other->ep()->flags & UCP_EP_FLAG_CONNECT_REQ_QUEUED);
+        return !(e.ep()->flags & UCP_EP_FLAG_CONNECT_REQ_QUEUED) &&
+               (other.ep()->flags & UCP_EP_FLAG_CONNECT_REQ_QUEUED);
     }
 
-    void connect_ep(entity &e1, entity &e2, const ucp_tl_bitmap_t &tl_bitmap)
+    reconfigured_entity& race_connect(const ucp_tl_bitmap_t &tl_bitmap1, const ucp_tl_bitmap_t &tl_bitmap2)
     {
-        //todo: check value of get_ep_params()
-        unsigned flags = ucp_worker_default_address_pack_flags(e2.worker());
-        ucp_address_t *address;
-        ucs_status_t status;
-        size_t addr_len;
-
-        status = ucp_address_pack(e2.worker(), e2.ep(), &tl_bitmap, flags,
-                                  e2.ucph()->config.ext.worker_addr_version,
-                                  NULL, UINT_MAX, &addr_len, (void**)&address);
-        ASSERT_UCS_OK(status);
-
-        ucp_ep_params_t ep_params = {
-                .field_mask = UCP_EP_PARAM_FIELD_REMOTE_ADDRESS,
-                .address = address
-        };
-
-        ucp_ep_h ep;
-        ASSERT_UCS_OK(ucp_ep_create(e1.worker(), &ep_params, &ep));
-        e1.set_ep(ep, 0, 0);
-
-        ucp_worker_release_address(e2.worker(), address);
-    }
-
-    reconf_ep_t race_connect(const ucp_tl_bitmap_t &tl_bitmap1, const ucp_tl_bitmap_t &tl_bitmap2)
-    {
-        connect_ep(sender(), receiver(), tl_bitmap1);
-        connect_ep(receiver(), sender(), tl_bitmap2);
-
-        reconf_ep_t reconf_sender(sender()), reconf_receiver(receiver());
+        m_ent1->connect(*m_ent2, tl_bitmap1);
+        m_ent2->connect(*m_ent1, tl_bitmap2);
         send_recv(100);
 
-        return (is_reconf_ep(&sender()) ||
-                (!is_reconf_ep(&receiver()) &&
-                 sender().worker()->uuid > receiver().worker()->uuid)) ?
-                       reconf_sender :
-                       reconf_receiver;
+        return (is_reconf_ep(*m_ent1, *m_ent2) ||
+                (!is_reconf_ep(*m_ent2, *m_ent1) &&
+                (m_ent1->worker()->uuid > m_ent2->worker()->uuid))) ?
+                         *m_ent1 :
+                         *m_ent2;
     }
 
     void enable_dev(unsigned dev_index, ucp_tl_bitmap_t &tl_bitmap)
