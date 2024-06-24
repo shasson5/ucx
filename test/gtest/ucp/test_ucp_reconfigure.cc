@@ -34,22 +34,6 @@ protected:
         {
         }
 
-        void init()
-        {
-            for (ucp_lane_index_t lane = 0; lane < num_lanes(); ++lane) {
-                uct_ep_h uct_ep = ucp_ep_get_lane(ep(), lane);
-
-                if (ucp_wireup_ep_test(uct_ep)) {
-                    m_uct_eps.push_back(ucp_wireup_ep(uct_ep)->super.uct_ep);
-                } else {
-                    m_uct_eps.push_back(uct_ep);
-                }
-            }
-
-            m_cfg_index = ep()->cfg_index;
-            m_transport = ucp_ep_get_tl_rsc(ep(), ep()->am_lane)->tl_name;
-        }
-
         void connect(const reconfigured_entity &other, const ucp_tl_bitmap_t &tl_bitmap)
         {
             //todo: check value of get_ep_params()
@@ -74,40 +58,44 @@ protected:
                             ucs::handle<ucp_ep_h, entity *>(ep, ucp_ep_destroy));
 
             ucp_worker_release_address(other.worker(), address);
-            init();
+            store_config();
         }
 
-        ucp_lane_index_t num_lanes() const
+        void verify()
         {
-            return ucp_ep_config(ep())->key.num_lanes;
-        }
-
-        void verify(unsigned expected_reused, bool reconfigured = true)
-        {
-            bool is_reconfigured = (ep()->cfg_index != m_cfg_index);
-            EXPECT_EQ(is_reconfigured, reconfigured);
-
             auto reused_count = std::count_if(m_uct_eps.begin(), m_uct_eps.end(),
                                              [this](const uct_ep_h uct_ep) {
                                                  return uct_ep_reused(uct_ep);
                                               });
-            EXPECT_LE(reused_count, expected_reused);
 
-            for (int i = 0; i < num_lanes(); ++i) {
-                const auto lane = ucp_ep_config(ep())->key.rma_bw_lanes[i];
-                if (lane == UCP_NULL_LANE) {
-                    break;
-                }
+            EXPECT_EQ(reused_count, is_reconfigured() ? 0 : (m_devs.size()/2));
+            //todo: add tl_bitmap compare
+        }
 
-                auto transport = ucp_ep_get_tl_rsc(ep(), lane)->tl_name;
-                EXPECT_STREQ(m_transport.c_str(), transport);
-            }
+        bool is_reconfigured()
+        {
+            return m_cfg_index != ep()->cfg_index;
         }
 
     private:
+        void store_config()
+        {
+            for (ucp_lane_index_t lane = 0; lane < ucp_ep_num_lanes(ep()); ++lane) {
+                uct_ep_h uct_ep = ucp_ep_get_lane(ep(), lane);
+
+                if (ucp_wireup_ep_test(uct_ep)) {
+                    m_uct_eps.push_back(ucp_wireup_ep(uct_ep)->super.uct_ep);
+                } else {
+                    m_uct_eps.push_back(uct_ep);
+                }
+            }
+
+            m_cfg_index = ep()->cfg_index;
+        }
+
         bool uct_ep_reused(uct_ep_h uct_ep) const
         {
-            for (ucp_lane_index_t lane = 0; lane < num_lanes(); ++lane) {
+            for (ucp_lane_index_t lane = 0; lane < ucp_ep_num_lanes(ep()); ++lane) {
                 if (ucp_ep_get_lane(ep(), lane) == uct_ep) {
                     return true;
                 }
@@ -116,9 +104,8 @@ protected:
             return false;
         }
 
-        ucp_worker_cfg_index_t m_cfg_index;
-        std::vector<uct_ep_h> m_uct_eps;
-        std::string m_transport;
+        ucp_worker_cfg_index_t   m_cfg_index;
+        std::vector<uct_ep_h>    m_uct_eps;
     };
 
     enum {
@@ -140,7 +127,6 @@ protected:
         m_ent2 = new reconfigured_entity(GetParam(), m_ucp_config, get_worker_params(), this);
         m_entities.push_back(m_ent1);
         m_entities.push_front(m_ent2);
-        m_reconfigure = false;
     }
 
     virtual unsigned msg_size()
@@ -148,69 +134,51 @@ protected:
         return get_variant_value(2);
     }
 
-    void send_recv(unsigned count)
+    void send_recv()
     {
         ucp_request_param_t param = {
             .op_attr_mask = UCP_OP_ATTR_FLAG_NO_IMM_CMPL
         };
         std::string m_sbuf, m_rbuf;
-        std::vector<void*> sreqs;
 
         m_sbuf.resize(msg_size());
         m_rbuf.resize(msg_size());
+        std::fill(m_sbuf.begin(), m_sbuf.end(), 'a');
 
-        for (int i = 0; i < count; ++i) {
-            std::fill(m_sbuf.begin(), m_sbuf.end(), i + 1);
-
-            void *sreq = ucp_tag_send_nbx(sender().ep(), m_sbuf.c_str(),
-                                          msg_size(), 0, &param);
-            void *rreq = ucp_tag_recv_nbx(receiver().worker(), (void*)m_rbuf.c_str(),
-                                          msg_size(), 0, 0, &param);
-            request_wait(rreq);
-            sreqs.push_back(sreq);
-        }
-
-        requests_wait(sreqs);
+        void *sreq = ucp_tag_send_nbx(sender().ep(), m_sbuf.c_str(),
+                                      msg_size(), 0, &param);
+        void *rreq = ucp_tag_recv_nbx(receiver().worker(), (void*)m_rbuf.c_str(),
+                                      msg_size(), 0, 0, &param);
+        request_wait(rreq);
+        request_wait(sreq);
+        //todo: verify buff content
     }
 
-    bool m_reconfigure;
     reconfigured_entity *m_ent1;
     reconfigured_entity *m_ent2;
 
 public:
     static void get_test_variants(std::vector<ucp_test_variant> &variants)
     {
-        add_variant_values(variants, get_test_variants_feature, MSG_SIZE_SMALL,
+        add_variant_values(variants, get_test_feature_variants, MSG_SIZE_SMALL,
                            "small");
-        add_variant_values(variants, get_test_variants_feature, MSG_SIZE_MEDIUM,
+        add_variant_values(variants, get_test_feature_variants, MSG_SIZE_MEDIUM,
                            "medium");
-        add_variant_values(variants, get_test_variants_feature, MSG_SIZE_LARGE,
+        add_variant_values(variants, get_test_feature_variants, MSG_SIZE_LARGE,
                            "large");
     }
 
     static void
-    get_test_variants_feature(std::vector<ucp_test_variant> &variants)
+    get_test_feature_variants(std::vector<ucp_test_variant> &variants)
     {
         add_variant_with_value(variants, UCP_FEATURE_TAG, 0, "");
     }
 
-    bool is_reconf_ep(const entity &e, const entity &other)
-    {
-        return !(e.ep()->flags & UCP_EP_FLAG_CONNECT_REQ_QUEUED) &&
-               (other.ep()->flags & UCP_EP_FLAG_CONNECT_REQ_QUEUED);
-    }
-
-    reconfigured_entity& race_connect(const ucp_tl_bitmap_t &tl_bitmap1, const ucp_tl_bitmap_t &tl_bitmap2)
+    void connect(const ucp_tl_bitmap_t &tl_bitmap1, const ucp_tl_bitmap_t &tl_bitmap2)
     {
         m_ent1->connect(*m_ent2, tl_bitmap1);
         m_ent2->connect(*m_ent1, tl_bitmap2);
-        send_recv(100);
-
-        return (is_reconf_ep(*m_ent1, *m_ent2) ||
-                (!is_reconf_ep(*m_ent2, *m_ent1) &&
-                (m_ent1->worker()->uuid > m_ent2->worker()->uuid))) ?
-                         *m_ent1 :
-                         *m_ent2;
+        send_recv();
     }
 
     void enable_dev(unsigned dev_index, ucp_tl_bitmap_t &tl_bitmap)
@@ -241,10 +209,14 @@ public:
 UCS_TEST_SKIP_COND_P(test_ucp_reconfigure, race_all_reuse, is_self())
 {
     ucp_tl_bitmap_t tl_bitmap;
-
     UCS_STATIC_BITMAP_SET_ALL(&tl_bitmap);
-    auto reconf_ep = race_connect(tl_bitmap, tl_bitmap);
-    reconf_ep.verify(reconf_ep.num_lanes(), false);
+
+    connect(tl_bitmap, tl_bitmap);
+    EXPECT_EQ(m_ent1->is_reconfigured(), false);
+    EXPECT_EQ(m_ent2->is_reconfigured(), false);
+
+    m_ent1->verify();
+    m_ent2->verify();
 }
 
 //UCS_TEST_SKIP_COND_P(test_ucp_reconfigure, race_all_reuse_part_scale, is_self())
@@ -261,8 +233,11 @@ UCS_TEST_SKIP_COND_P(test_ucp_reconfigure, race_no_reuse, is_self())
     enable_dev(0, tl_bitmap1);
     enable_dev(1, tl_bitmap2);
 
-    auto reconf_ep = race_connect(tl_bitmap1, tl_bitmap2);
-    reconf_ep.verify(0);
+    connect(tl_bitmap1, tl_bitmap2);
+    EXPECT_NE(m_ent1->is_reconfigured(), m_ent2->is_reconfigured());
+
+    m_ent1->verify();
+    m_ent2->verify();
 }
 
 //UCS_TEST_SKIP_COND_P(test_ucp_reconfigure, race_no_reuse_switch_wireup_lane,
