@@ -63,11 +63,11 @@ protected:
             store_config();
         }
 
-        void verify()
+        void verify() const
         {
             auto reused_count = std::count_if(m_uct_eps.begin(), m_uct_eps.end(),
-                                             [this](const uct_ep_h uct_ep) {
-                                                 return uct_ep_reused(uct_ep);
+                                             [this](uct_ep_h uct_ep) {
+                                                 return is_lane_reused(uct_ep);
                                               });
 
             EXPECT_EQ(reused_count, is_reconfigured() ? 0 : ucp_ep_num_lanes(ep()));
@@ -107,7 +107,7 @@ protected:
             m_cfg_index = ep()->cfg_index;
         }
 
-        bool uct_ep_reused(uct_ep_h uct_ep) const
+        bool is_lane_reused(uct_ep_h uct_ep) const
         {
             for (ucp_lane_index_t lane = 0; lane < ucp_ep_num_lanes(ep()); ++lane) {
                 if (ucp_ep_get_lane(ep(), lane) == uct_ep) {
@@ -127,14 +127,33 @@ protected:
     {
         ucp_test::init();
 
-        if (!has_resource(sender(), "rc_mlx5") &&
-            !has_resource(sender(), "dc_mlx5")) {
+        /* Check presence of IB devices using rc_verbs, as all devices must
+         * support it. */
+        if (!has_resource(sender(), "rc_verbs")) {
             UCS_TEST_SKIP_R("IB transport is not present");
         }
     }
 
-    void send_recv()
+public:
+    static void
+    get_test_variants(std::vector<ucp_test_variant> &variants)
     {
+        add_variant_with_value(variants, UCP_FEATURE_TAG, 0, "");
+    }
+
+    void send_recv(const ucp_tl_bitmap_t &tl_bitmap1, const ucp_tl_bitmap_t &tl_bitmap2)
+    {
+        /* Init sender/receiver */
+        m_entities.push_front(new reconfigured_entity(GetParam(), m_ucp_config,
+                                                      get_worker_params(),
+                                                      this, tl_bitmap1));
+        m_entities.push_back(new reconfigured_entity(GetParam(), m_ucp_config,
+                                                      get_worker_params(),
+                                                      this, tl_bitmap2));
+
+        sender().connect(&receiver(), get_ep_params());
+        receiver().connect(&sender(), get_ep_params());
+
         ucp_request_param_t param = {
             .op_attr_mask = UCP_OP_ATTR_FLAG_NO_IMM_CMPL
         };
@@ -153,28 +172,6 @@ protected:
             request_wait(sreq);
         }
         //todo: verify buff content
-    }
-
-    reconfigured_entity *m_ent1;
-    reconfigured_entity *m_ent2;
-
-public:
-    static void
-    get_test_variants(std::vector<ucp_test_variant> &variants)
-    {
-        add_variant_with_value(variants, UCP_FEATURE_TAG, 0, "");
-    }
-
-    void connect(const ucp_tl_bitmap_t &tl_bitmap1, const ucp_tl_bitmap_t &tl_bitmap2)
-    {
-        m_ent1 = new reconfigured_entity(GetParam(), m_ucp_config, get_worker_params(), this, tl_bitmap1);
-        m_ent2 = new reconfigured_entity(GetParam(), m_ucp_config, get_worker_params(), this, tl_bitmap2);
-        m_entities.push_front(m_ent1);
-        m_entities.push_back(m_ent2);
-
-        sender().connect(&receiver(), get_ep_params());
-        receiver().connect(&sender(), get_ep_params());
-        send_recv();
     }
 
     void enable_dev(unsigned dev_index, ucp_tl_bitmap_t &tl_bitmap)
@@ -201,6 +198,17 @@ public:
         }
     }
 
+    static const reconfigured_entity& to_reconfigured(const entity &e)
+    {
+        return *static_cast<const reconfigured_entity*>(&e);
+    }
+
+    void verify()
+    {
+        to_reconfigured(sender()).verify();
+        to_reconfigured(receiver()).verify();
+    }
+
     static constexpr size_t msg_size = 16 * UCS_KBYTE;
 };
 
@@ -208,30 +216,24 @@ UCS_TEST_P(test_ucp_reconfigure, all_lanes_reused)
 {
     ucp_tl_bitmap_t tl_bitmap;
     UCS_STATIC_BITMAP_SET_ALL(&tl_bitmap);
+    send_recv(tl_bitmap, tl_bitmap);
 
-    connect(tl_bitmap, tl_bitmap);
-    EXPECT_FALSE(m_ent1->is_reconfigured());
-    EXPECT_FALSE(m_ent2->is_reconfigured());
-
-    m_ent1->verify();
-    m_ent2->verify();
+    EXPECT_FALSE(to_reconfigured(sender()).is_reconfigured());
+    EXPECT_FALSE(to_reconfigured(receiver()).is_reconfigured());
+    verify();
 }
 
 UCS_TEST_SKIP_COND_P(test_ucp_reconfigure, no_lanes_reused, has_transport("dc"))
 {
+    /* Split resources between entities, so that intersection is empty */
     ucp_tl_bitmap_t tl_bitmap1, tl_bitmap2;
     enable_dev(0, tl_bitmap1);
     enable_dev(1, tl_bitmap2);
+    send_recv(tl_bitmap1, tl_bitmap2);
 
-    connect(tl_bitmap1, tl_bitmap2);
-    EXPECT_NE(m_ent1->is_reconfigured(), m_ent2->is_reconfigured());
-
-    m_ent1->verify();
-    m_ent2->verify();
+    EXPECT_NE(to_reconfigured(sender()).is_reconfigured(),
+              to_reconfigured(receiver()).is_reconfigured());
+    verify();
 }
 
-
-
-UCP_INSTANTIATE_TEST_CASE_TLS(test_ucp_reconfigure, ib, "ib")
-UCP_INSTANTIATE_TEST_CASE_TLS(test_ucp_reconfigure, rc, "rc")
-UCP_INSTANTIATE_TEST_CASE_TLS(test_ucp_reconfigure, dc, "dc")
+UCP_INSTANTIATE_TEST_CASE(test_ucp_reconfigure);
