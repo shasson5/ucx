@@ -29,35 +29,37 @@ protected:
         reconfigured_entity(const ucp_test_param &test_params,
                             ucp_config_t* ucp_config,
                             const ucp_worker_params_t& worker_params,
-                            const ucp_test *test_owner) :
-            entity(test_params, ucp_config, worker_params, test_owner)
-        {
+                            const ucp_test *test_owner,
+                            const ucp_tl_bitmap_t &tl_bitmap) :
+            entity(test_params, ucp_config, worker_params, test_owner),
+            m_tl_bitmap(tl_bitmap) {
         }
 
-        void connect(const reconfigured_entity &other, const ucp_tl_bitmap_t &tl_bitmap)
+        void connect(const entity* other, const ucp_ep_params_t& ep_params,
+                     int ep_idx = 0, int do_set_ep = 1) override
         {
-            //todo: check value of get_ep_params()
-            unsigned flags = ucp_worker_default_address_pack_flags(other.worker());
+            unsigned flags = ucp_worker_default_address_pack_flags(other->worker());
             ucp_address_t *address;
             ucs_status_t status;
             size_t addr_len;
+            const reconfigured_entity *local_other = static_cast<const reconfigured_entity*>(other);
 
-            status = ucp_address_pack(other.worker(), other.ep(), &tl_bitmap, flags,
-                                      other.ucph()->config.ext.worker_addr_version,
+            status = ucp_address_pack(other->worker(), other->ep(), &local_other->tl_bitmap(), flags,
+                                      other->ucph()->config.ext.worker_addr_version,
                                       NULL, UINT_MAX, &addr_len, (void**)&address);
             ASSERT_UCS_OK(status);
 
-            ucp_ep_params_t ep_params = {
+            ucp_ep_params_t local_ep_params = {
                     .field_mask = UCP_EP_PARAM_FIELD_REMOTE_ADDRESS,
                     .address = address
             };
 
             ucp_ep_h ep;
-            ASSERT_UCS_OK(ucp_ep_create(worker(), &ep_params, &ep));
+            ASSERT_UCS_OK(ucp_ep_create(worker(), &local_ep_params, &ep));
             m_workers[0].second.push_back(
                             ucs::handle<ucp_ep_h, entity *>(ep, ucp_ep_destroy));
 
-            ucp_worker_release_address(other.worker(), address);
+            ucp_worker_release_address(other->worker(), address);
             store_config();
         }
 
@@ -68,13 +70,25 @@ protected:
                                                  return uct_ep_reused(uct_ep);
                                               });
 
-            EXPECT_EQ(reused_count, is_reconfigured() ? 0 : (m_devs.size()/2));
-            //todo: add tl_bitmap compare
+            EXPECT_EQ(reused_count, is_reconfigured() ? 0 : ucp_ep_num_lanes(ep()));
+            if (!is_reconfigured()) {
+                return;
+            }
+
+            for (ucp_lane_index_t lane = 0; lane < ucp_ep_num_lanes(ep()); ++lane) {
+                auto rsc_index = ucp_ep_get_rsc_index(ep(), lane);
+                EXPECT_TRUE(UCS_STATIC_BITMAP_GET(m_tl_bitmap, rsc_index));
+            }
         }
 
-        bool is_reconfigured()
+        bool is_reconfigured() const
         {
             return m_cfg_index != ep()->cfg_index;
+        }
+
+        const ucp_tl_bitmap_t &tl_bitmap() const
+        {
+            return m_tl_bitmap;
         }
 
     private:
@@ -104,14 +118,9 @@ protected:
             return false;
         }
 
-        ucp_worker_cfg_index_t   m_cfg_index;
-        std::vector<uct_ep_h>    m_uct_eps;
-    };
-
-    enum {
-        MSG_SIZE_SMALL  = 64,
-        MSG_SIZE_MEDIUM = 4096,
-        MSG_SIZE_LARGE  = 262144
+        ucp_worker_cfg_index_t m_cfg_index;
+        std::vector<uct_ep_h>  m_uct_eps;
+        ucp_tl_bitmap_t        m_tl_bitmap;
     };
 
     void init()
@@ -122,16 +131,6 @@ protected:
             !has_resource(sender(), "dc_mlx5")) {
             UCS_TEST_SKIP_R("IB transport is not present");
         }
-
-        m_ent1 = new reconfigured_entity(GetParam(), m_ucp_config, get_worker_params(), this);
-        m_ent2 = new reconfigured_entity(GetParam(), m_ucp_config, get_worker_params(), this);
-        m_entities.push_back(m_ent1);
-        m_entities.push_front(m_ent2);
-    }
-
-    virtual unsigned msg_size()
-    {
-        return get_variant_value(2);
     }
 
     void send_recv()
@@ -141,16 +140,18 @@ protected:
         };
         std::string m_sbuf, m_rbuf;
 
-        m_sbuf.resize(msg_size());
-        m_rbuf.resize(msg_size());
-        std::fill(m_sbuf.begin(), m_sbuf.end(), 'a');
+        for (int i = 0; i < 100; ++ i) {
+            m_sbuf.resize(msg_size);
+            m_rbuf.resize(msg_size);
+            std::fill(m_sbuf.begin(), m_sbuf.end(), 'a');
 
-        void *sreq = ucp_tag_send_nbx(sender().ep(), m_sbuf.c_str(),
-                                      msg_size(), 0, &param);
-        void *rreq = ucp_tag_recv_nbx(receiver().worker(), (void*)m_rbuf.c_str(),
-                                      msg_size(), 0, 0, &param);
-        request_wait(rreq);
-        request_wait(sreq);
+            void *sreq = ucp_tag_send_nbx(sender().ep(), m_sbuf.c_str(),
+                                          msg_size, 0, &param);
+            void *rreq = ucp_tag_recv_nbx(receiver().worker(), (void*)m_rbuf.c_str(),
+                                          msg_size, 0, 0, &param);
+            request_wait(rreq);
+            request_wait(sreq);
+        }
         //todo: verify buff content
     }
 
@@ -158,26 +159,21 @@ protected:
     reconfigured_entity *m_ent2;
 
 public:
-    static void get_test_variants(std::vector<ucp_test_variant> &variants)
-    {
-        add_variant_values(variants, get_test_feature_variants, MSG_SIZE_SMALL,
-                           "small");
-        add_variant_values(variants, get_test_feature_variants, MSG_SIZE_MEDIUM,
-                           "medium");
-        add_variant_values(variants, get_test_feature_variants, MSG_SIZE_LARGE,
-                           "large");
-    }
-
     static void
-    get_test_feature_variants(std::vector<ucp_test_variant> &variants)
+    get_test_variants(std::vector<ucp_test_variant> &variants)
     {
         add_variant_with_value(variants, UCP_FEATURE_TAG, 0, "");
     }
 
     void connect(const ucp_tl_bitmap_t &tl_bitmap1, const ucp_tl_bitmap_t &tl_bitmap2)
     {
-        m_ent1->connect(*m_ent2, tl_bitmap1);
-        m_ent2->connect(*m_ent1, tl_bitmap2);
+        m_ent1 = new reconfigured_entity(GetParam(), m_ucp_config, get_worker_params(), this, tl_bitmap1);
+        m_ent2 = new reconfigured_entity(GetParam(), m_ucp_config, get_worker_params(), this, tl_bitmap2);
+        m_entities.push_front(m_ent1);
+        m_entities.push_back(m_ent2);
+
+        sender().connect(&receiver(), get_ep_params());
+        receiver().connect(&sender(), get_ep_params());
         send_recv();
     }
 
@@ -204,30 +200,24 @@ public:
             }
         }
     }
+
+    static constexpr size_t msg_size = 16 * UCS_KBYTE;
 };
 
-UCS_TEST_SKIP_COND_P(test_ucp_reconfigure, race_all_reuse, is_self())
+UCS_TEST_P(test_ucp_reconfigure, all_lanes_reused)
 {
     ucp_tl_bitmap_t tl_bitmap;
     UCS_STATIC_BITMAP_SET_ALL(&tl_bitmap);
 
     connect(tl_bitmap, tl_bitmap);
-    EXPECT_EQ(m_ent1->is_reconfigured(), false);
-    EXPECT_EQ(m_ent2->is_reconfigured(), false);
+    EXPECT_FALSE(m_ent1->is_reconfigured());
+    EXPECT_FALSE(m_ent2->is_reconfigured());
 
     m_ent1->verify();
     m_ent2->verify();
 }
 
-//UCS_TEST_SKIP_COND_P(test_ucp_reconfigure, race_all_reuse_part_scale, is_self())
-//{
-////    disable_dc_dev(0);
-////    set_scale(start_scaled());
-//    auto reconf_ep = race_connect();
-//    reconf_ep.verify(m_disabled_devs, false);
-//}
-
-UCS_TEST_SKIP_COND_P(test_ucp_reconfigure, race_no_reuse, is_self())
+UCS_TEST_SKIP_COND_P(test_ucp_reconfigure, no_lanes_reused, has_transport("dc"))
 {
     ucp_tl_bitmap_t tl_bitmap1, tl_bitmap2;
     enable_dev(0, tl_bitmap1);
@@ -240,13 +230,8 @@ UCS_TEST_SKIP_COND_P(test_ucp_reconfigure, race_no_reuse, is_self())
     m_ent2->verify();
 }
 
-//UCS_TEST_SKIP_COND_P(test_ucp_reconfigure, race_no_reuse_switch_wireup_lane,
-//                     is_self(),
-//                     "RESOLVE_REMOTE_EP_ID=y")
-//{
-////    set_scale(start_scaled(), true);
-//    auto reconf_ep = race_connect();
-//    reconf_ep.verify(m_disabled_devs);
-//}
+
 
 UCP_INSTANTIATE_TEST_CASE_TLS(test_ucp_reconfigure, ib, "ib")
+UCP_INSTANTIATE_TEST_CASE_TLS(test_ucp_reconfigure, rc, "rc")
+UCP_INSTANTIATE_TEST_CASE_TLS(test_ucp_reconfigure, dc, "dc")
