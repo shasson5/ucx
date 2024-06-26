@@ -22,108 +22,121 @@ extern "C" {
 #include <uct/base/uct_iface.h>
 }
 
+class reconfigured_entity : public entity {
+public:
+    reconfigured_entity(const ucp_test_param &test_params,
+                        ucp_config_t* ucp_config,
+                        const ucp_worker_params_t& worker_params,
+                        const ucp_test *test_owner,
+                        const ucp_tl_bitmap_t &tl_bitmap) :
+        entity(test_params, ucp_config, worker_params, test_owner),
+        m_tl_bitmap(tl_bitmap) {
+    }
+
+    void verify() const
+    {
+        auto reused_count = std::count_if(m_uct_eps.begin(), m_uct_eps.end(),
+                                         [this](uct_ep_h uct_ep) {
+                                             return is_lane_reused(uct_ep);
+                                          });
+
+        EXPECT_EQ(reused_count, is_reconfigured() ? 0 : ucp_ep_num_lanes(ep()));
+        if (!is_reconfigured()) {
+            return;
+        }
+
+        for (ucp_lane_index_t lane = 0; lane < ucp_ep_num_lanes(ep()); ++lane) {
+            auto rsc_index = ucp_ep_get_rsc_index(ep(), lane);
+            EXPECT_TRUE(UCS_STATIC_BITMAP_GET(m_tl_bitmap, rsc_index));
+        }
+    }
+
+    void connect(const entity* other, const ucp_ep_params_t& ep_params,
+                 int ep_idx = 0, int do_set_ep = 1) override;
+
+    bool is_reconfigured() const
+    {
+        return m_cfg_index != ep()->cfg_index;
+    }
+
+    const ucp_tl_bitmap_t &tl_bitmap() const
+    {
+        return m_tl_bitmap;
+    }
+
+private:
+    void store_config()
+    {
+        for (ucp_lane_index_t lane = 0; lane < ucp_ep_num_lanes(ep()); ++lane) {
+            uct_ep_h uct_ep = ucp_ep_get_lane(ep(), lane);
+
+            if (ucp_wireup_ep_test(uct_ep)) {
+                m_uct_eps.push_back(ucp_wireup_ep(uct_ep)->super.uct_ep);
+            } else {
+                m_uct_eps.push_back(uct_ep);
+            }
+        }
+
+        m_cfg_index = ep()->cfg_index;
+    }
+
+    bool is_lane_reused(uct_ep_h uct_ep) const
+    {
+        for (ucp_lane_index_t lane = 0; lane < ucp_ep_num_lanes(ep()); ++lane) {
+            if (ucp_ep_get_lane(ep(), lane) == uct_ep) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    ucp_worker_cfg_index_t m_cfg_index;
+    std::vector<uct_ep_h>  m_uct_eps;
+    const ucp_tl_bitmap_t  m_tl_bitmap;
+};
+
+void
+reconfigured_entity::connect(const entity* other, const ucp_ep_params_t& ep_params,
+                             int ep_idx, int do_set_ep)
+{
+    unsigned flags    = ucp_worker_default_address_pack_flags(other->worker());
+    auto &local_other = to_reconfigured(*other);
+    ucp_address_t *packed_addr;
+    ucs_status_t status;
+    size_t addr_len;
+    ucp_unpacked_address_t remote_address;
+
+    status = ucp_address_pack(other->worker(), other->ep(), &local_other.tl_bitmap(), flags,
+                              other->ucph()->config.ext.worker_addr_version,
+                              NULL, UINT_MAX, &addr_len, (void**)&address);
+    ASSERT_UCS_OK(status);
+
+    ucp_ep_h ep;
+
+    status = ucp_address_unpack(worker, address, flags, &remote_address);
+    ASSERT_UCS_OK(status);
+
+    status = ucp_ep_create_to_worker_addr(worker, &local_other.tl_bitmap(),
+                                          &remote_address, ep_init_flags,
+                                          "reconfigure test", addr_indices, &ep);
+    ASSERT_UCS_OK(status);
+    ASSERT_UCS_OK(ucp_wireup_send_request(ep));
+
+    ucs_free(address);
+    ucs_free(remote_address.address_list);
+
+    auto packed_addr_h  = ucs::handle<ucp_address_t*, entity *>(packed_addr, ucs_free);
+    auto address_list_h = ucs::handle<ucp_address_entry_t*, entity *>(address_list, ucs_free);
+
+    auto ep_h = ucs::handle<ucp_ep_h, entity *>(ep, ucp_ep_destroy);
+    m_workers[0].second.push_back(ep_h);
+    store_config();
+}
+
 class test_ucp_reconfigure : public ucp_test {
 protected:
-    class reconfigured_entity : public entity {
-    public:
-        reconfigured_entity(const ucp_test_param &test_params,
-                            ucp_config_t* ucp_config,
-                            const ucp_worker_params_t& worker_params,
-                            const ucp_test *test_owner,
-                            const ucp_tl_bitmap_t &tl_bitmap) :
-            entity(test_params, ucp_config, worker_params, test_owner),
-            m_tl_bitmap(tl_bitmap) {
-        }
-
-        void connect(const entity* other, const ucp_ep_params_t& ep_params,
-                     int ep_idx = 0, int do_set_ep = 1) override
-        {
-            unsigned flags = ucp_worker_default_address_pack_flags(other->worker());
-            ucp_address_t *address;
-            ucs_status_t status;
-            size_t addr_len;
-            const reconfigured_entity *local_other = static_cast<const reconfigured_entity*>(other);
-
-            status = ucp_address_pack(other->worker(), other->ep(), &local_other->tl_bitmap(), flags,
-                                      other->ucph()->config.ext.worker_addr_version,
-                                      NULL, UINT_MAX, &addr_len, (void**)&address);
-            ASSERT_UCS_OK(status);
-
-            ucp_ep_params_t local_ep_params = {
-                    .field_mask = UCP_EP_PARAM_FIELD_REMOTE_ADDRESS,
-                    .address = address
-            };
-
-            ucp_ep_h ep;
-            ASSERT_UCS_OK(ucp_ep_create(worker(), &local_ep_params, &ep));
-            m_workers[0].second.push_back(
-                            ucs::handle<ucp_ep_h, entity *>(ep, ucp_ep_destroy));
-
-            ucp_worker_release_address(other->worker(), address);
-            store_config();
-        }
-
-        void verify() const
-        {
-            auto reused_count = std::count_if(m_uct_eps.begin(), m_uct_eps.end(),
-                                             [this](uct_ep_h uct_ep) {
-                                                 return is_lane_reused(uct_ep);
-                                              });
-
-            EXPECT_EQ(reused_count, is_reconfigured() ? 0 : ucp_ep_num_lanes(ep()));
-            if (!is_reconfigured()) {
-                return;
-            }
-
-            for (ucp_lane_index_t lane = 0; lane < ucp_ep_num_lanes(ep()); ++lane) {
-                auto rsc_index = ucp_ep_get_rsc_index(ep(), lane);
-                EXPECT_TRUE(UCS_STATIC_BITMAP_GET(m_tl_bitmap, rsc_index));
-            }
-        }
-
-        bool is_reconfigured() const
-        {
-            return m_cfg_index != ep()->cfg_index;
-        }
-
-        const ucp_tl_bitmap_t &tl_bitmap() const
-        {
-            return m_tl_bitmap;
-        }
-
-    private:
-        void store_config()
-        {
-            for (ucp_lane_index_t lane = 0; lane < ucp_ep_num_lanes(ep()); ++lane) {
-                uct_ep_h uct_ep = ucp_ep_get_lane(ep(), lane);
-
-                if (ucp_wireup_ep_test(uct_ep)) {
-                    m_uct_eps.push_back(ucp_wireup_ep(uct_ep)->super.uct_ep);
-                } else {
-                    m_uct_eps.push_back(uct_ep);
-                }
-            }
-
-            m_cfg_index = ep()->cfg_index;
-        }
-
-        bool is_lane_reused(uct_ep_h uct_ep) const
-        {
-            for (ucp_lane_index_t lane = 0; lane < ucp_ep_num_lanes(ep()); ++lane) {
-                if (ucp_ep_get_lane(ep(), lane) == uct_ep) {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        ucp_worker_cfg_index_t m_cfg_index;
-        std::vector<uct_ep_h>  m_uct_eps;
-        ucp_tl_bitmap_t        m_tl_bitmap;
-    };
-
-    void init()
+    void init() override
     {
         ucp_test::init();
 
@@ -154,7 +167,7 @@ public:
         sender().connect(&receiver(), get_ep_params());
         receiver().connect(&sender(), get_ep_params());
 
-        ucp_request_param_t param = {
+        const ucp_request_param_t param = {
             .op_attr_mask = UCP_OP_ATTR_FLAG_NO_IMM_CMPL
         };
         std::string m_sbuf, m_rbuf;
@@ -174,27 +187,25 @@ public:
         //todo: verify buff content
     }
 
-    void enable_dev(unsigned dev_index, ucp_tl_bitmap_t &tl_bitmap)
+    void init_tl_bitmap(ucp_tl_bitmap_t &tl_bitmap1, ucp_tl_bitmap_t &tl_bitmap2)
     {
-        int rc_count = 0;
-        ucp_rsc_index_t tl_id;
+        ucp_tl_bitmap_t p2p_bitmap = {0};
+        /* Assume sender/receiver have identical bitmaps (tests are running
+         * on a single node). */
+        ucp_context_h context      = sender().ucph();
+        ucp_rsc_index_t rsc_index;
+        ucp_tl_bitmap_t *tl_bitmap_p;
 
-        UCS_STATIC_BITMAP_RESET_ALL(&tl_bitmap);
-
-        UCS_STATIC_BITMAP_FOR_EACH_BIT(tl_id, &sender().ucph()->tl_bitmap) {
-            auto resource = &sender().ucph()->tl_rscs[tl_id];
-
-            if (std::string(resource->tl_rsc.tl_name) == "rc_mlx5") {
-                rc_count++;
-
-                if ((rc_count - 1) == dev_index) {
-                    UCS_STATIC_BITMAP_SET(&tl_bitmap, tl_id);
-                }
+        UCS_STATIC_BITMAP_FOR_EACH_BIT(rsc_index, &context->tl_bitmap) {
+            if (ucp_worker_is_tl_p2p(sender().worker(), rsc_index)) {
+                UCS_STATIC_BITMAP_SET(&p2p_bitmap, rsc_index);
             }
+        }
 
-            if (std::string(resource->tl_rsc.tl_name) == "ud_mlx5") {
-                UCS_STATIC_BITMAP_SET(&tl_bitmap, tl_id);
-            }
+        auto p2p_count = UCS_STATIC_BITMAP_POPCOUNT(p2p_bitmap);
+        UCS_STATIC_BITMAP_FOR_EACH_BIT(rsc_index, &p2p_bitmap) {
+            tl_bitmap_p = (rsc_index < (p2p_count / 2)) ? &tl_bitmap1 : &tl_bitmap2;
+            UCS_STATIC_BITMAP_SET(tl_bitmap_p, rsc_index);
         }
     }
 
@@ -226,9 +237,8 @@ UCS_TEST_P(test_ucp_reconfigure, all_lanes_reused)
 UCS_TEST_SKIP_COND_P(test_ucp_reconfigure, no_lanes_reused, has_transport("dc"))
 {
     /* Split resources between entities, so that intersection is empty */
-    ucp_tl_bitmap_t tl_bitmap1, tl_bitmap2;
-    enable_dev(0, tl_bitmap1);
-    enable_dev(1, tl_bitmap2);
+    ucp_tl_bitmap_t tl_bitmap1 = {0}, tl_bitmap2 = {0};
+    init_tl_bitmap(tl_bitmap1, tl_bitmap2);
     send_recv(tl_bitmap1, tl_bitmap2);
 
     EXPECT_NE(to_reconfigured(sender()).is_reconfigured(),
