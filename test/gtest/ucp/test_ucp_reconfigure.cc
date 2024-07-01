@@ -22,29 +22,75 @@ extern "C" {
 #include <uct/base/uct_iface.h>
 }
 
-typedef std::unique_ptr<ucp_unpacked_address_t,void(*)(ucp_unpacked_address_t*)> unpacked_address_h;
-
 class test_ucp_reconfigure : public ucp_test {
 protected:
+    class address {
+    public:
+        address(ucp_address_t *packed, const ucp_unpacked_address_t &unpacked) :
+            m_packed(packed)
+        {
+            memcpy(&m_unpacked, &unpacked, sizeof(unpacked));
+        }
+
+        ~address()
+        {
+            ucs_free(m_packed);
+            ucs_free(m_unpacked.address_list);
+        }
+
+        ucp_unpacked_address_t *get()
+        {
+            return &m_unpacked;
+        }
+
+    private:
+        ucp_address_t         *m_packed;
+        ucp_unpacked_address_t m_unpacked;
+    };
+
     class entity : public ucp_test_base::entity {
     public:
         entity(const ucp_test_param &test_params, ucp_config_t* ucp_config,
                const ucp_worker_params_t& worker_params,
-               const ucp_test *test_owner, bool reuse_lanes) :
-           ucp_test_base::entity(test_params, ucp_config, worker_params, test_owner),
-           m_reuse_lanes(reuse_lanes) {
+               const ucp_test *test_owner) :
+           ucp_test_base::entity(test_params, ucp_config, worker_params, test_owner) {
+            m_worker_addr = get_address();
         }
 
         void connect(const ucp_test_base::entity* other,
                      const ucp_ep_params_t& ep_params, int ep_idx = 0,
                      int do_set_ep = 1) override;
         void verify(const entity &other) const;
-        unpacked_address_h get_address() const;
-        bool has_matching_lane(uct_ep_h uct_ep, const entity &other) const;
+//        std::unique_ptr<address> get_address(const ucp_tl_bitmap_t &tl_bitmap) const;
+        bool has_matching_lane(ucp_ep_h ep, ucp_lane_index_t lane_idx, const entity &other) const;
 
         bool is_reconfigured() const
         {
             return m_cfg_index != ep()->cfg_index;
+        }
+
+        std::unique_ptr<address> get_address() const
+        {
+            unsigned flags           = ucp_worker_default_address_pack_flags(worker());
+            ucp_object_version_t ver = ucph()->config.ext.worker_addr_version;
+            size_t addr_len;
+            ucp_address_t *packed_addr;
+            ucp_unpacked_address_t unpacked_addr;
+
+            const ucp_tl_bitmap_t tl_bitmap = (ep() == NULL) ? ucp_tl_bitmap_max : get_tl_bitmap();
+
+            ASSERT_UCS_OK(ucp_address_pack(worker(), ep(), &tl_bitmap, flags,
+                                    ver, NULL, UINT_MAX, &addr_len,
+                                    (void**)&packed_addr));
+
+            ASSERT_UCS_OK(ucp_address_unpack(worker(), packed_addr, flags, &unpacked_addr));
+            //todo: release packed if unpack fails
+            return std::unique_ptr<address>(new address(packed_addr, unpacked_addr));
+        }
+
+        static const entity& to_reconfigured(const ucp_test_base::entity &e)
+        {
+            return *static_cast<const entity*>(&e);
         }
 
     private:
@@ -65,9 +111,9 @@ protected:
 
         ucp_tl_bitmap_t get_tl_bitmap() const;
 
-        ucp_worker_cfg_index_t m_cfg_index;
-        std::vector<uct_ep_h>  m_uct_eps;
-        bool                   m_reuse_lanes;
+        ucp_worker_cfg_index_t   m_cfg_index;
+        std::vector<uct_ep_h>    m_uct_eps;
+        std::unique_ptr<address> m_worker_addr;
     };
 
     void init() override
@@ -85,20 +131,31 @@ public:
     static void
     get_test_variants(std::vector<ucp_test_variant> &variants)
     {
+        add_variant_values(variants, get_test_variants_feature, 0);
+        add_variant_values(variants, get_test_variants_feature, 1, "reused");
+    }
+
+    static void
+    get_test_variants_feature(std::vector<ucp_test_variant> &variants)
+    {
         add_variant_with_value(variants, UCP_FEATURE_TAG, 0, "");
     }
 
-    entity *create_entity(bool reuse_lanes)
+    bool reuse_lanes() const
     {
-        return new entity(GetParam(), m_ucp_config, get_worker_params(), this,
-                          reuse_lanes);
+        return get_variant_value(1);
     }
 
-    void send_recv(bool reuse_lanes)
+    entity *create_entity()
+    {
+        return new entity(GetParam(), m_ucp_config, get_worker_params(), this);
+    }
+
+    void send_recv()
     {
         /* Init sender/receiver */
-        m_entities.push_front(create_entity(reuse_lanes));
-        m_entities.push_back(create_entity(reuse_lanes));
+        m_entities.push_front(create_entity());
+        m_entities.push_back(create_entity());
 
         sender().connect(&receiver(), get_ep_params());
         receiver().connect(&sender(), get_ep_params());
@@ -122,15 +179,18 @@ public:
         }
     }
 
-    static const entity& to_reconfigured(const ucp_test_base::entity &e)
-    {
-        return *static_cast<const entity*>(&e);
-    }
-
     void verify()
     {
-        auto e1 = to_reconfigured(sender());
-        auto e2 = to_reconfigured(receiver());
+        auto& e1 = entity::to_reconfigured(sender());
+        auto& e2 = entity::to_reconfigured(receiver());
+
+        if (reuse_lanes()) {
+            EXPECT_FALSE(e1.is_reconfigured());
+            EXPECT_FALSE(e2.is_reconfigured());
+        } else {
+            EXPECT_NE(e1.is_reconfigured(), e2.is_reconfigured());
+        }
+
         e1.verify(e2);
         e2.verify(e1);
     }
@@ -143,38 +203,11 @@ test_ucp_reconfigure::entity::get_tl_bitmap() const
 {
     ucp_tl_bitmap_t tl_bitmap = UCS_STATIC_BITMAP_ZERO_INITIALIZER;
 
-    if (m_reuse_lanes || (ep() == NULL)) {
-        return ucp_tl_bitmap_max;
-    }
-
     for (ucp_lane_index_t lane = 0; lane < ucp_ep_num_lanes(ep()); ++lane) {
         UCS_STATIC_BITMAP_SET(&tl_bitmap, ucp_ep_get_rsc_index(ep(), lane));
     }
 
-    return UCS_STATIC_BITMAP_NOT(tl_bitmap);
-}
-
-unpacked_address_h test_ucp_reconfigure::entity::get_address() const
-{
-    unsigned flags = ucp_worker_default_address_pack_flags(worker());
-    ucp_object_version_t ver = ucph()->config.ext.worker_addr_version;
-    ucp_address_t *packed_addr;
-    size_t addr_len;
-
-    ASSERT_UCS_OK(ucp_address_pack(worker(), NULL, &ucp_tl_bitmap_max, flags,
-                            ver, NULL, UINT_MAX, &addr_len,
-                            (void**)&packed_addr));
-    std::unique_ptr<void,void(*)(void*)> packed_addr_p((void*)packed_addr,
-                                                       ucs_free);
-
-    unpacked_address_h unpacked_addr(new ucp_unpacked_address_t,
-            [](ucp_unpacked_address_t *addr) {
-            ucs_free(addr->address_list);
-            delete addr;
-        });
-    ASSERT_UCS_OK(ucp_address_unpack(worker(), packed_addr, flags, unpacked_addr.get()));
-
-    return std::move(unpacked_addr);
+    return tl_bitmap;
 }
 
 void
@@ -182,41 +215,45 @@ test_ucp_reconfigure::entity::connect(const ucp_test_base::entity* other,
                                       const ucp_ep_params_t& ep_params,
                                       int ep_idx, int do_set_ep)
 {
-    auto unpacked_addr = to_reconfigured(*other).get_address();
+    auto rtest = static_cast<const test_ucp_reconfigure*>(m_test);
+    ucp_tl_bitmap_t tl_bitmap;
+    ucp_ep_h ucp_ep;
+    unsigned addr_indices[UCP_MAX_LANES];
+    auto worker_addr = to_reconfigured(*other).m_worker_addr.get();
+
+    tl_bitmap = (rtest->reuse_lanes() || (other->ep() == NULL)) ? ucp_tl_bitmap_max :
+            UCS_STATIC_BITMAP_NOT(to_reconfigured(*other).get_tl_bitmap());
 
     UCS_ASYNC_BLOCK(&worker()->async);
-    ucp_ep_h ep;
-    unsigned addr_indices[UCP_MAX_LANES];
-    ucp_tl_bitmap_t tl_bitmap = to_reconfigured(*other).get_tl_bitmap();
     ASSERT_UCS_OK(ucp_ep_create_to_worker_addr(worker(), &tl_bitmap,
-                                          unpacked_addr.get(), UCP_EP_INIT_CREATE_AM_LANE,
-                                          "reconfigure test", addr_indices, &ep));
-    ucs::handle<ucp_ep_h,ucp_test_base::entity*> ep_h(ep, ucp_ep_destroy);
+                                               worker_addr->get(), UCP_EP_INIT_CREATE_AM_LANE,
+                                               "reconfigure test", addr_indices, &ucp_ep));
+    ucs::handle<ucp_ep_h,ucp_test_base::entity*> ep_h(ucp_ep, ucp_ep_destroy);
     m_workers[0].second.push_back(ep_h);
 
-    ep->conn_sn = ucp_ep_match_get_sn(worker(), unpacked_addr->uuid);
-    ASSERT_TRUE(ucp_ep_match_insert(worker(), ep, unpacked_addr->uuid, ep->conn_sn,
+    ucp_ep->conn_sn = ucp_ep_match_get_sn(worker(), worker_addr->get()->uuid);
+    ASSERT_TRUE(ucp_ep_match_insert(worker(), ucp_ep, worker_addr->get()->uuid, ucp_ep->conn_sn,
                                     UCS_CONN_MATCH_QUEUE_EXP));
-    ASSERT_UCS_OK(ucp_wireup_send_request(ep));
+    ASSERT_UCS_OK(ucp_wireup_send_request(ucp_ep));
 
     UCS_ASYNC_UNBLOCK(&worker()->async);
     store_config();
 }
 
 bool
-test_ucp_reconfigure::entity::has_matching_lane(uct_ep_h uct_ep, const entity &other) const
+test_ucp_reconfigure::entity::has_matching_lane(ucp_ep_h ep, ucp_lane_index_t lane_idx,
+                                                const entity &other) const
 {
-    auto address = other.get_address();
-    uct_ep_is_connected_params_t params;
+    auto lane     = &ucp_ep_config(ep)->key.lanes[lane_idx];
+    auto resource = &ucph()->tl_rscs[ucp_ep_get_rsc_index(ep, lane_idx)];
+    auto addr     = other.get_address();
     ucp_address_entry_t *ae;
 
-    //        tl_name_csum;
-
-    ucs_carray_for_each(ae, address->address_list, address->address_count) {
-        params.iface_addr  = ae->iface_addr;
-        params.device_addr = ae->dev_addr;
-//        params.ep_addr     = ae->ep_addrs;
-        if (uct_ep_is_connected(uct_ep, &params)) {
+    ucs_carray_for_each(ae, addr->get()->address_list, addr->get()->address_count) {
+        if ((resource->tl_name_csum == ae->tl_name_csum) &&
+             ucp_wireup_is_lane_connected(ep, lane_idx, ae)) {
+            EXPECT_EQ(ae->sys_dev, lane->dst_sys_dev);
+            EXPECT_EQ(ae->md_index, lane->dst_md_index);
             return true;
         }
     }
@@ -227,7 +264,7 @@ test_ucp_reconfigure::entity::has_matching_lane(uct_ep_h uct_ep, const entity &o
 void test_ucp_reconfigure::entity::verify(const entity &other) const
 {
     auto reused_lanes = std::count_if(m_uct_eps.begin(), m_uct_eps.end(),
-                                  [this](uct_ep_h uct_ep) {
+                                [this](uct_ep_h uct_ep) {
         for (ucp_lane_index_t lane = 0; lane < ucp_ep_num_lanes(ep()); ++lane) {
             if (ucp_ep_get_lane(ep(), lane) == uct_ep) {
                 return true;
@@ -241,23 +278,13 @@ void test_ucp_reconfigure::entity::verify(const entity &other) const
     EXPECT_EQ(ucp_ep_num_lanes(ep()), ucp_ep_num_lanes(other.ep()));
 
     for (ucp_lane_index_t lane = 0; lane < ucp_ep_num_lanes(ep()); ++lane) {
-        EXPECT_TRUE(has_matching_lane(ucp_ep_get_lane(ep(), lane), other));
+        EXPECT_TRUE(has_matching_lane(ep(), lane, other));
     }
 }
 
-UCS_TEST_P(test_ucp_reconfigure, all_lanes_reused)
+UCS_TEST_P(test_ucp_reconfigure, reconfigure)
 {
-    send_recv(true);
-    EXPECT_FALSE(to_reconfigured(sender()).is_reconfigured());
-    EXPECT_FALSE(to_reconfigured(receiver()).is_reconfigured());
-    verify();
-}
-
-UCS_TEST_SKIP_COND_P(test_ucp_reconfigure, no_lanes_reused, has_transport("dc"))
-{
-    send_recv(false);
-    EXPECT_NE(to_reconfigured(sender()).is_reconfigured(),
-              to_reconfigured(receiver()).is_reconfigured());
+    send_recv();
     verify();
 }
 
