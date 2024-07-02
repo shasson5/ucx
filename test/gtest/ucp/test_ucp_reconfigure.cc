@@ -52,8 +52,10 @@ protected:
     public:
         entity(const ucp_test_param &test_params, ucp_config_t* ucp_config,
                const ucp_worker_params_t& worker_params,
-               const ucp_test *test_owner) :
-           ucp_test_base::entity(test_params, ucp_config, worker_params, test_owner) {
+               const ucp_test *test_owner,
+               const ucp_tl_bitmap_t& tl_bitmap) :
+                   ucp_test_base::entity(test_params, ucp_config, worker_params,
+                                         test_owner), m_tl_bitmap(tl_bitmap) {
             m_worker_addr = get_address();
         }
 
@@ -91,7 +93,9 @@ protected:
         ucp_tl_bitmap_t get_tl_bitmap() const;
         std::unique_ptr<address> get_address() const;
         bool has_matching_lane(ucp_ep_h ep, ucp_lane_index_t lane_idx, const entity &other) const;
+        ucp_tl_bitmap_t get_test_bitmap(const ucp_test_base::entity* other);
 
+        ucp_tl_bitmap_t          m_tl_bitmap;
         ucp_worker_cfg_index_t   m_cfg_index;
         std::vector<uct_ep_h>    m_uct_eps;
         std::unique_ptr<address> m_worker_addr;
@@ -129,10 +133,10 @@ public:
         return get_variant_value(1);
     }
 
-    void create_entity()
+    void create_entity(const ucp_tl_bitmap_t &tl_bitmap)
     {
         m_entities.push_back(new entity(GetParam(), m_ucp_config,
-                             get_worker_params(), this));
+                             get_worker_params(), this, tl_bitmap));
     }
 
     void send_recv()
@@ -190,6 +194,18 @@ test_ucp_reconfigure::entity::get_tl_bitmap() const
     return tl_bitmap;
 }
 
+ucp_tl_bitmap_t test_ucp_reconfigure::entity::get_test_bitmap(const ucp_test_base::entity* other)
+{
+    ucp_tl_bitmap_t tl_bitmap = to_reconfigured(*other).get_tl_bitmap();
+    ucp_rsc_index_t rsc_index;
+
+    UCS_STATIC_BITMAP_FOR_EACH_BIT(rsc_index, &tl_bitmap) {
+        UCS_STATIC_BITMAP_RESET(&m_tl_bitmap, rsc_index);
+    }
+
+    return m_tl_bitmap;
+}
+
 void
 test_ucp_reconfigure::entity::connect(const ucp_test_base::entity* other,
                                       const ucp_ep_params_t& ep_params,
@@ -202,7 +218,7 @@ test_ucp_reconfigure::entity::connect(const ucp_test_base::entity* other,
     auto worker_addr = to_reconfigured(*other).m_worker_addr->get();
 
     tl_bitmap = (rtest->reuse_lanes() || (other->ep() == NULL)) ? ucp_tl_bitmap_max :
-            UCS_STATIC_BITMAP_NOT(to_reconfigured(*other).get_tl_bitmap());
+                                                                  get_test_bitmap(other);
 
     UCS_ASYNC_BLOCK(&worker()->async);
     ASSERT_UCS_OK(ucp_ep_create_to_worker_addr(worker(), &tl_bitmap,
@@ -283,23 +299,34 @@ std::unique_ptr<test_ucp_reconfigure::address> test_ucp_reconfigure::entity::get
 
 UCS_TEST_P(test_ucp_reconfigure, basic)
 {
-    create_entity();
-    create_entity();
+    create_entity(ucp_tl_bitmap_max);
+    create_entity(ucp_tl_bitmap_max);
     send_recv();
     verify();
 }
 
 UCS_TEST_P(test_ucp_reconfigure, num_lanes_diff)
 {
-    {
-        ucs::scoped_setenv num_paths("UCX_IB_NUM_PATHS", "1");
-        create_entity();
-    }
-    {
-        ucs::scoped_setenv num_paths("UCX_IB_NUM_PATHS", "2");
-        create_entity();
+    ucp_tl_bitmap_t tl_bitmap = ucp_tl_bitmap_max;
+    static const std::string rc_verbs_str("rc_verbs");
+    std::string dev_name;
+    ucp_rsc_index_t rsc_index;
+
+    create_entity(ucp_tl_bitmap_max);
+
+    UCS_STATIC_BITMAP_FOR_EACH_BIT(rsc_index, &sender().ucph()->tl_bitmap) {
+        auto rsc = &sender().ucph()->tl_rscs[rsc_index].tl_rsc;
+
+        if (dev_name.empty() && (rc_verbs_str == rsc->tl_name)) {
+            dev_name = rsc->dev_name;
+        }
+
+        if (dev_name == rsc->dev_name) {
+            UCS_STATIC_BITMAP_RESET(&tl_bitmap, rsc_index);
+        }
     }
 
+    create_entity(tl_bitmap);
     send_recv();
     verify();
 }
