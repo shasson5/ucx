@@ -38,7 +38,7 @@ protected:
             ucs_free(m_unpacked.address_list);
         }
 
-        ucp_unpacked_address_t *get()
+        const ucp_unpacked_address_t *get() const
         {
             return &m_unpacked;
         }
@@ -61,31 +61,10 @@ protected:
                      const ucp_ep_params_t& ep_params, int ep_idx = 0,
                      int do_set_ep = 1) override;
         void verify(const entity &other) const;
-//        std::unique_ptr<address> get_address(const ucp_tl_bitmap_t &tl_bitmap) const;
-        bool has_matching_lane(ucp_ep_h ep, ucp_lane_index_t lane_idx, const entity &other) const;
 
         bool is_reconfigured() const
         {
             return m_cfg_index != ep()->cfg_index;
-        }
-
-        std::unique_ptr<address> get_address() const
-        {
-            unsigned flags           = ucp_worker_default_address_pack_flags(worker());
-            ucp_object_version_t ver = ucph()->config.ext.worker_addr_version;
-            size_t addr_len;
-            ucp_address_t *packed_addr;
-            ucp_unpacked_address_t unpacked_addr;
-
-            const ucp_tl_bitmap_t tl_bitmap = (ep() == NULL) ? ucp_tl_bitmap_max : get_tl_bitmap();
-
-            ASSERT_UCS_OK(ucp_address_pack(worker(), ep(), &tl_bitmap, flags,
-                                    ver, NULL, UINT_MAX, &addr_len,
-                                    (void**)&packed_addr));
-
-            ASSERT_UCS_OK(ucp_address_unpack(worker(), packed_addr, flags, &unpacked_addr));
-            //todo: release packed if unpack fails
-            return std::unique_ptr<address>(new address(packed_addr, unpacked_addr));
         }
 
         static const entity& to_reconfigured(const ucp_test_base::entity &e)
@@ -110,6 +89,8 @@ protected:
         }
 
         ucp_tl_bitmap_t get_tl_bitmap() const;
+        std::unique_ptr<address> get_address() const;
+        bool has_matching_lane(ucp_ep_h ep, ucp_lane_index_t lane_idx, const entity &other) const;
 
         ucp_worker_cfg_index_t   m_cfg_index;
         std::vector<uct_ep_h>    m_uct_eps;
@@ -125,6 +106,8 @@ protected:
         if (!has_resource(sender(), "rc_verbs")) {
             UCS_TEST_SKIP_R("IB transport is not present");
         }
+
+        m_entities.clear();
     }
 
 public:
@@ -146,17 +129,14 @@ public:
         return get_variant_value(1);
     }
 
-    entity *create_entity()
+    void create_entity()
     {
-        return new entity(GetParam(), m_ucp_config, get_worker_params(), this);
+        m_entities.push_back(new entity(GetParam(), m_ucp_config,
+                             get_worker_params(), this));
     }
 
     void send_recv()
     {
-        /* Init sender/receiver */
-        m_entities.push_front(create_entity());
-        m_entities.push_back(create_entity());
-
         sender().connect(&receiver(), get_ep_params());
         receiver().connect(&sender(), get_ep_params());
 
@@ -219,20 +199,20 @@ test_ucp_reconfigure::entity::connect(const ucp_test_base::entity* other,
     ucp_tl_bitmap_t tl_bitmap;
     ucp_ep_h ucp_ep;
     unsigned addr_indices[UCP_MAX_LANES];
-    auto worker_addr = to_reconfigured(*other).m_worker_addr.get();
+    auto worker_addr = to_reconfigured(*other).m_worker_addr->get();
 
     tl_bitmap = (rtest->reuse_lanes() || (other->ep() == NULL)) ? ucp_tl_bitmap_max :
             UCS_STATIC_BITMAP_NOT(to_reconfigured(*other).get_tl_bitmap());
 
     UCS_ASYNC_BLOCK(&worker()->async);
     ASSERT_UCS_OK(ucp_ep_create_to_worker_addr(worker(), &tl_bitmap,
-                                               worker_addr->get(), UCP_EP_INIT_CREATE_AM_LANE,
+                                               worker_addr, UCP_EP_INIT_CREATE_AM_LANE,
                                                "reconfigure test", addr_indices, &ucp_ep));
     ucs::handle<ucp_ep_h,ucp_test_base::entity*> ep_h(ucp_ep, ucp_ep_destroy);
     m_workers[0].second.push_back(ep_h);
 
-    ucp_ep->conn_sn = ucp_ep_match_get_sn(worker(), worker_addr->get()->uuid);
-    ASSERT_TRUE(ucp_ep_match_insert(worker(), ucp_ep, worker_addr->get()->uuid, ucp_ep->conn_sn,
+    ucp_ep->conn_sn = ucp_ep_match_get_sn(worker(), worker_addr->uuid);
+    ASSERT_TRUE(ucp_ep_match_insert(worker(), ucp_ep, worker_addr->uuid, ucp_ep->conn_sn,
                                     UCS_CONN_MATCH_QUEUE_EXP));
     ASSERT_UCS_OK(ucp_wireup_send_request(ucp_ep));
 
@@ -282,8 +262,44 @@ void test_ucp_reconfigure::entity::verify(const entity &other) const
     }
 }
 
-UCS_TEST_P(test_ucp_reconfigure, reconfigure)
+std::unique_ptr<test_ucp_reconfigure::address> test_ucp_reconfigure::entity::get_address() const
 {
+    unsigned flags           = ucp_worker_default_address_pack_flags(worker());
+    ucp_object_version_t ver = ucph()->config.ext.worker_addr_version;
+    size_t addr_len;
+    ucp_address_t *packed_addr;
+    ucp_unpacked_address_t unpacked_addr;
+
+    const ucp_tl_bitmap_t tl_bitmap = (ep() == NULL) ? ucp_tl_bitmap_max : get_tl_bitmap();
+
+    ASSERT_UCS_OK(ucp_address_pack(worker(), ep(), &tl_bitmap, flags,
+                            ver, NULL, UINT_MAX, &addr_len,
+                            (void**)&packed_addr));
+
+    ASSERT_UCS_OK(ucp_address_unpack(worker(), packed_addr, flags, &unpacked_addr));
+    //todo: release packed if unpack fails
+    return std::unique_ptr<address>(new address(packed_addr, unpacked_addr));
+}
+
+UCS_TEST_P(test_ucp_reconfigure, basic)
+{
+    create_entity();
+    create_entity();
+    send_recv();
+    verify();
+}
+
+UCS_TEST_P(test_ucp_reconfigure, num_lanes_diff)
+{
+    {
+        ucs::scoped_setenv num_paths("UCX_IB_NUM_PATHS", "1");
+        create_entity();
+    }
+    {
+        ucs::scoped_setenv num_paths("UCX_IB_NUM_PATHS", "2");
+        create_entity();
+    }
+
     send_recv();
     verify();
 }
