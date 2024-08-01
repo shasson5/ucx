@@ -52,12 +52,6 @@ static ssize_t ucp_wireup_ep_bcopy_send_func(uct_ep_h uct_ep)
     return UCS_ERR_NO_RESOURCE;
 }
 
-static int ucp_wireup_ep_is_next_ep_active(ucp_wireup_ep_t *wireup_ep)
-{
-    return (wireup_ep->flags & UCP_WIREUP_EP_FLAG_READY) ||
-           (wireup_ep->aux_ep == NULL);
-}
-
 uct_ep_h ucp_wireup_ep_extract_msg_ep(ucp_wireup_ep_t *wireup_ep)
 {
     uct_ep_h msg_ep = ucp_wireup_ep_get_msg_ep(wireup_ep);
