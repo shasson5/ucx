@@ -356,11 +356,9 @@ UCS_TEST_SKIP_COND_P(test_ucp_reconfigure, request_reset, num_eps_mode(),
 UCS_TEST_SKIP_COND_P(test_ucp_reconfigure, resolve_remote_id,
                      has_transport("shm") || is_self(), "RNDV_THRESH=0")
 {
-    /* Create only AM_LANE to ensure we have only wireup EPs in
-     * configuration. */
-
     if (num_eps_mode() && has_transport("ib") && !has_transport("shm")) {
-        UCS_TEST_SKIP_R("UD is selected instead of DC in reconfigured EP");
+        UCS_TEST_SKIP_R("UD is selected instead of DC in reconfigured EP (not "
+                        "relevant for reconfiguration)");
     }
 
     if (num_eps_mode() && is_single_transport()) {
@@ -368,6 +366,12 @@ UCS_TEST_SKIP_COND_P(test_ucp_reconfigure, resolve_remote_id,
                         "be selected in both sides");
     }
 
+    if (exclude_iface() && (sender().ucph()->num_tls == 1)) {
+        UCS_TEST_SKIP_R("exclude_iface requires at least 2 ifaces to work");
+    }
+
+    /* Create only AM_LANE to ensure we have only wireup EPs in
+     * configuration. */
     run(UCP_EP_INIT_CREATE_AM_LANE_ONLY, true, true);
 }
 
