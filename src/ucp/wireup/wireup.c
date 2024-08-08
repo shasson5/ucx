@@ -1362,11 +1362,6 @@ static int ucp_wireup_can_reconfigure_internal(
         }
     }
 
-    /* Verify number of lanes is the same */
-    if (ucp_ep_num_lanes(ep) != new_key->num_lanes) {
-        return 0;
-    }
-
     ucp_ep_config_lanes_intersect(&ucp_ep_config(ep)->key, new_key, ep,
                                   remote_address, addr_indices, reuse_lane_map);
 

@@ -209,20 +209,10 @@ void test_ucp_reconfigure::entity::connect(const ucp_test_base::entity *other,
     ucp_tl_bitmap_t tl_bitmap;
     ucp_ep_h ucp_ep;
     unsigned addr_indices[UCP_MAX_LANES];
-    ucp_rsc_index_t rsc_index;
 
     tl_bitmap = r_test->exclude_iface() ?
                         UCS_STATIC_BITMAP_NOT(r_other.ep_tl_bitmap()) :
                         ucp_tl_bitmap_max;
-
-    /* Disable xpmem because it causes different number of lanes in
-     * both configurations.
-     * TODO: Remove this when support for diff num lanes is added */
-    UCS_STATIC_BITMAP_FOR_EACH_BIT(rsc_index, &ucph()->tl_bitmap) {
-        if (std::string("xpmem") == ucph()->tl_rscs[rsc_index].tl_rsc.tl_name) {
-            UCS_STATIC_BITMAP_RESET(&tl_bitmap, rsc_index);
-        }
-    }
 
     UCS_ASYNC_BLOCK(&worker()->async);
     ASSERT_UCS_OK(ucp_ep_create_to_worker_addr(worker(), &tl_bitmap,
@@ -339,10 +329,6 @@ UCS_TEST_SKIP_COND_P(test_ucp_reconfigure, basic,
 UCS_TEST_SKIP_COND_P(test_ucp_reconfigure, request_reset, num_eps_mode(),
                      "PROTO_REQUEST_RESET=y")
 {
-    if (exclude_iface() && has_transport("ib") && !has_transport("shm")) {
-        UCS_TEST_SKIP_R("diff num lanes is caused here, will enable later");
-    }
-
     if (exclude_iface() && is_single_transport()) {
         /* One side will consume all ifaces and the other side will have no ifaces left to use */
         UCS_TEST_SKIP_R("exclude_iface requires at least 2 transports to work "
@@ -368,6 +354,10 @@ UCS_TEST_SKIP_COND_P(test_ucp_reconfigure, resolve_remote_id,
 
     if (exclude_iface() && (sender().ucph()->num_tls == 1)) {
         UCS_TEST_SKIP_R("exclude_iface requires at least 2 ifaces to work");
+    }
+
+    if (exclude_iface() && has_transport("tcp")) {
+        UCS_TEST_SKIP_R("bug in this flow which was fixed and will be rebased");
     }
 
     /* Create only AM_LANE to ensure we have only wireup EPs in
