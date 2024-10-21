@@ -55,10 +55,10 @@ protected:
                                const entity &other) const;
         unsigned num_paths() const;
 
-        ucp_worker_cfg_index_t m_cfg_index = UCP_WORKER_CFG_INDEX_NULL;
+        ucp_worker_cfg_index_t m_cfg_index  = UCP_WORKER_CFG_INDEX_NULL;
+        unsigned               m_num_reused = 0;
         std::vector<uct_ep_h>  m_uct_eps;
         bool                   m_exclude_ifaces;
-        unsigned               m_num_reused;
     };
 
     bool is_single_transport()
