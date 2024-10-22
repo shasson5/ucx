@@ -1839,9 +1839,8 @@ ucp_lane_index_t ucp_ep_lookup_lane(ucp_ep_h ucp_ep, uct_ep_h uct_ep)
 }
 
 static ucp_lane_index_t
-ucp_ep_get_reused_lane_source(ucp_ep_h ep,
-                              const ucp_lane_index_t *reuse_lane_map,
-                              ucp_lane_index_t new_lane)
+ucp_ep_get_reused_lane_source(ucp_ep_h ep, ucp_lane_index_t new_lane,
+                              const ucp_lane_index_t *reuse_lane_map)
 {
     ucp_lane_index_t lane;
 
@@ -1858,15 +1857,16 @@ ucp_lane_index_t
 ucp_ep_find_non_reused_lane(ucp_ep_h ep, const ucp_ep_config_key_t *key,
                             const ucp_lane_index_t *reuse_lane_map)
 {
-    ucp_lane_index_t lane;
+    ucp_lane_index_t lane, old_lane;
 
     if (ucp_ep_has_cm_lane(ep)) {
         return key->cm_lane;
     }
 
     for (lane = 0; lane < key->num_lanes; lane++) {
-        if (ucp_ep_get_reused_lane_source(ep, reuse_lane_map, lane) ==
-            UCP_NULL_LANE) {
+        old_lane = ucp_ep_get_reused_lane_source(ep, lane, reuse_lane_map);
+        if ((old_lane == UCP_NULL_LANE) ||
+            ucp_wireup_ep_test(ucp_ep_get_lane(ep, lane))) {
             return lane;
         }
     }
