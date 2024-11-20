@@ -1046,7 +1046,7 @@ void uct_ud_iface_send_completion(uct_ud_iface_t *iface, uint16_t sn,
                                   int is_async)
 {
     uct_ud_ctl_desc_t *cdesc;
-
+   // printf("cqe %u\n", sn);
     ucs_queue_for_each_extract(cdesc, &iface->tx.outstanding_q, queue,
                                UCS_CIRCULAR_COMPARE16(cdesc->sn, <=, sn)) {
         uct_ud_iface_ctl_skb_complete(iface, cdesc, is_async);

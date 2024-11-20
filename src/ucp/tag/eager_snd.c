@@ -303,6 +303,8 @@ void ucp_tag_eager_sync_send_ack(ucp_worker_h worker, void *hdr, uint16_t recv_f
     ucp_request_t *req;
     ucp_ep_h ep;
 
+  //  printf("send sync ack\n");
+
     ucs_assert(recv_flags & UCP_RECV_DESC_FLAG_EAGER_SYNC);
 
     if (recv_flags & UCP_RECV_DESC_FLAG_EAGER_ONLY) {

@@ -181,6 +181,8 @@ void ucp_proto_eager_sync_ack_handler(ucp_worker_h worker,
     UCP_SEND_REQUEST_GET_BY_ID(&req, worker, rep_hdr->req_id, 1, return,
                                "EAGER_S ACK %p", rep_hdr);
 
+  //  printf("got sync ack\n");
+
     req->flags |= UCP_REQUEST_FLAG_SYNC_REMOTE_COMPLETED;
     if (req->flags & UCP_REQUEST_FLAG_SYNC_LOCAL_COMPLETED) {
         ucp_request_complete_send(req, rep_hdr->status);

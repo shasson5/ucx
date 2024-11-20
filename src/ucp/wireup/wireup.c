@@ -151,10 +151,11 @@ ucs_status_t ucp_wireup_msg_progress(uct_pending_req_t *self)
     if (ucs_unlikely(packed_len < 0)) {
         status = (ucs_status_t)packed_len;
         if (ucs_likely(status == UCS_ERR_NO_RESOURCE)) {
+            printf("ucp_wireup_msg_progress no resource %u\n", req->send.wireup.type);
             goto out;
         }
 
-        ucs_diag("failed to send wireup: %s", ucs_status_string(status));
+        printf("failed to send wireup: %s", ucs_status_string(status));
         ucp_ep_set_failed_schedule(ep, req->send.lane, status);
 
         status = UCS_OK;
@@ -162,6 +163,8 @@ ucs_status_t ucp_wireup_msg_progress(uct_pending_req_t *self)
     } else {
         status = UCS_OK;
     }
+
+    printf("ucp_wireup_msg_progress sent %u\n", req->send.wireup.type);
 
     switch (req->send.wireup.type) {
     case UCP_WIREUP_MSG_PRE_REQUEST:
@@ -622,6 +625,8 @@ ucp_wireup_process_request(ucp_worker_h worker, ucp_ep_h ep,
               msg->conn_sn, remote_address->addr_version,
               remote_address->dst_version);
 
+    printf("wireup request\n");
+
     if (ep != NULL) {
         ucs_assert(msg->dst_ep_id != UCS_PTR_MAP_KEY_INVALID);
         ucp_ep_update_remote_id(ep, msg->src_ep_id);
@@ -726,7 +731,7 @@ ucp_wireup_process_request(ucp_worker_h worker, ucp_ep_h ep,
     }
 
     if (send_reply) {
-        ucs_trace("ep %p: sending wireup reply", ep);
+        printf("ep %p: sending wireup reply\n", ep);
         ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_REPLY, &tl_bitmap, lanes2remote);
     }
 
@@ -769,6 +774,8 @@ ucp_wireup_process_reply(ucp_worker_h worker, ucp_ep_h ep,
 
     ucp_ep_match_remove_ep(worker, ep);
     ucp_ep_update_remote_id(ep, msg->src_ep_id);
+
+    printf("wireup reply\n");
 
     /* Connect p2p addresses to remote endpoint */
     if (!(ep->flags & UCP_EP_FLAG_LOCAL_CONNECTED) ||
@@ -903,6 +910,8 @@ static ucs_status_t ucp_wireup_msg_handler(void *arg, void *data,
     ucs_status_t status;
 
     UCS_ASYNC_BLOCK(&worker->async);
+
+    printf("ucp_wireup_msg_handler %u\n", msg->type);
 
     if (msg->dst_ep_id != UCS_PTR_MAP_KEY_INVALID) {
         UCP_WORKER_GET_EP_BY_ID(
@@ -1801,6 +1810,8 @@ ucs_status_t ucp_wireup_send_request(ucp_ep_h ep)
     if (rsc_index != UCP_NULL_RESOURCE) {
         UCS_STATIC_BITMAP_SET(&tl_bitmap, rsc_index);
     }
+
+    printf("send wireup request\n");
 
     ucs_debug("ep %p: send wireup request (flags=0x%x)", ep, ep->flags);
     status = ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_REQUEST, &tl_bitmap, NULL);

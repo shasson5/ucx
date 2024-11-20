@@ -584,6 +584,8 @@ uct_ib_mlx5_post_send(uct_ib_mlx5_txwq_t *wq, struct mlx5_wqe_ctrl_seg *ctrl,
     num_bb  = ucs_div_round_up(wqe_size, MLX5_SEND_WQE_BB);
     sw_pi   = wq->sw_pi;
 
+   // printf("post %u\n", sw_pi);
+
     uct_ib_mlx5_txwq_validate(wq, num_bb, hw_ci_updated);
 
     /* TODO Put memory store fence here too, to prevent WC being flushed after DBrec */

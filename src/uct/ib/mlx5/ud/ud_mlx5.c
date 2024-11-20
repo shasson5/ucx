@@ -187,6 +187,7 @@ static uint16_t uct_ud_mlx5_ep_send_ctl(uct_ud_ep_t *ud_ep, uct_ud_send_skb_t *s
         ++dptr;
     }
 
+   // printf("uct_ud_mlx5_ep_send_ctl %p\n", ep);
     uct_ud_mlx5_post_send(iface, ep, ce_se, ctrl, wqe_size, skb->neth,
                           max_log_sge);
     return sn;
@@ -529,6 +530,7 @@ uct_ud_mlx5_iface_poll_rx(uct_ud_mlx5_iface_t *iface, int is_async)
 
     uct_ib_mlx5_log_rx(&iface->super.super, cqe, packet, uct_ud_dump_packet);
     /* coverity[tainted_data] */
+//    printf("recv cqe %u\n", ci);
     uct_ud_ep_process_rx(
             &iface->super,
             (uct_ud_neth_t*)UCS_PTR_BYTE_OFFSET(packet, UCT_IB_GRH_LEN),
@@ -547,6 +549,8 @@ out:
     }
     return count;
 }
+
+//static int handled = 0;
 
 static UCS_F_ALWAYS_INLINE unsigned
 uct_ud_mlx5_iface_poll_tx(uct_ud_mlx5_iface_t *iface, int is_async)
@@ -568,6 +572,8 @@ uct_ud_mlx5_iface_poll_tx(uct_ud_mlx5_iface_t *iface, int is_async)
     uct_ib_mlx5_log_cqe(cqe);
     hw_ci                     = ntohs(cqe->wqe_counter);
     iface->super.tx.available = uct_ib_mlx5_txwq_update_bb(&iface->tx.wq, hw_ci);
+
+  //  handled = hw_ci;
 
     uct_ud_iface_send_completion(&iface->super, hw_ci, is_async);
     uct_ib_mlx5_update_db_cq_ci(&iface->cq[UCT_IB_DIR_TX]);
@@ -1061,6 +1067,7 @@ static UCS_CLASS_INIT_FUNC(uct_ud_mlx5_iface_t, uct_md_h tl_md,
 
 static UCS_CLASS_CLEANUP_FUNC(uct_ud_mlx5_iface_t)
 {
+   // printf("handled: %u\n", handled);
     ucs_trace_func("");
 }
 

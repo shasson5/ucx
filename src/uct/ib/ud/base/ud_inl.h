@@ -118,6 +118,7 @@ uct_ud_ep_get_tx_skb(uct_ud_iface_t *iface, uct_ud_ep_t *ep)
                        iface, ep, ep->ep_id, ep->dest_ep_id,
                        (unsigned)ep->tx.psn,
                        (unsigned)ep->tx.max_psn);
+      //  printf("uct_ud_ep_is_connected_and_no_pending %u %p\n", ep->flags, ep);
         UCS_STATS_UPDATE_COUNTER(ep->super.stats, UCT_EP_STAT_NO_RES, 1);
         return NULL;
     }
@@ -168,6 +169,7 @@ uct_ud_iface_complete_tx_skb(uct_ud_iface_t *iface, uct_ud_ep_t *ep,
         ep->tx.send_time = now;
     }
 
+   // printf("add skb: %p\n", skb);
     ucs_queue_push(&ep->tx.window, &skb->queue);
     ep->tx.tick = iface->tx.tick;
 

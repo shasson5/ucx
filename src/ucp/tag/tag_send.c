@@ -250,6 +250,8 @@ UCS_PROFILE_FUNC(ucs_status_ptr_t, ucp_tag_send_nbx,
     ucs_trace_req("send_nbx buffer %p count %zu tag %"PRIx64" to %s",
                   buffer, count, tag, ucp_ep_peer_name(ep));
 
+    printf("tag_send\n");
+
     attr_mask = param->op_attr_mask &
                 (UCP_OP_ATTR_FIELD_DATATYPE | UCP_OP_ATTR_FLAG_NO_IMM_CMPL);
 
@@ -327,6 +329,8 @@ UCS_PROFILE_FUNC(ucs_status_ptr_t, ucp_tag_send_sync_nbx,
 
     ucs_trace_req("send_sync_nbx buffer %p count %zu tag %"PRIx64" to %s",
                   buffer, count, tag, ucp_ep_peer_name(ep));
+
+    printf("ucp_tag_send_sync_nbx\n");
 
     status = ucp_ep_resolve_remote_id(ep, ucp_ep_config(ep)->tag.lane);
     if (status != UCS_OK) {

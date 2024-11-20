@@ -98,6 +98,7 @@ static void uct_ud_ep_ca_drop(uct_ud_ep_t *ep)
     }
     ep->tx.max_psn    = ep->tx.acked_psn + ep->ca.cwnd;
     if (UCT_UD_PSN_COMPARE(ep->tx.max_psn, >, ep->tx.psn)) {
+        printf("uct_ud_ep_ca_drop\n");
         /* do not send more until we get acks going */
         uct_ud_ep_tx_stop(ep);
     }
@@ -178,6 +179,9 @@ uct_ud_ep_window_release_inline(uct_ud_iface_t *iface, uct_ud_ep_t *ep,
             ep->resend.pos = ucs_queue_iter_begin(&ep->tx.window);
             ep->resend.psn = ep->tx.acked_psn + 1;
         }
+
+       // printf("complete skb: %p\n", skb);
+
         if (ucs_likely(!(skb->flags & UCT_UD_SEND_SKB_FLAG_COMP))) {
             /* fast path case: skb without completion callback */
             uct_ud_skb_release(skb, 1);
@@ -716,6 +720,8 @@ uct_ud_ep_process_ack(uct_ud_iface_t *iface, uct_ud_ep_t *ep,
                 " current_psn=%u", ep, ep->flags, ep->tx.acked_psn,
                 ep->tx.psn);
 
+//    printf("uct_ud_ep_process_ack\n");
+
     uct_ud_ep_window_release_inline(iface, ep, ack_psn, UCS_OK, is_async, 0);
     uct_ud_ep_ca_ack(ep);
     uct_ud_ep_resend_ack(iface, ep);
@@ -829,6 +835,8 @@ static void uct_ud_ep_rx_creq(uct_ud_iface_t *iface, uct_ud_neth_t *neth)
         uct_ud_ep_ctl_op_add(iface, ep, UCT_UD_EP_OP_CREP);
     }
 
+  //  printf("got request from %u\n", ctl->peer.pid);
+
     ++ep->rx_creq_count;
 
     ucs_assertv_always(ctl->conn_req.conn_sn == ep->conn_sn,
@@ -910,6 +918,8 @@ static void uct_ud_ep_rx_ctl(uct_ud_iface_t *iface, uct_ud_ep_t *ep,
         return;
     }
 
+   // printf("connected to %u\n", ctl->peer.pid);
+
     ep->rx.ooo_pkts.head_sn = neth->psn;
     uct_ud_ep_set_dest_ep_id(ep, ctl->conn_rep.src_ep_id);
     ucs_arbiter_group_schedule(&iface->tx.pending_q, &ep->tx.pending.group);
@@ -968,9 +978,13 @@ uct_ud_send_skb_t *uct_ud_ep_prepare_creq(uct_ud_ep_t *ep)
 
     uct_ud_peer_name(ucs_unaligned_ptr(&creq->peer));
 
+    //printf("send req from: %u\n", creq->peer.pid);
+
     skb->len = sizeof(*neth) + sizeof(*creq) + iface->super.addr_size;
     return skb;
 }
+
+static int flag = 0;
 
 void uct_ud_ep_process_rx(uct_ud_iface_t *iface, uct_ud_neth_t *neth, unsigned byte_len,
                           uct_ud_recv_skb_t *skb, int is_async)
@@ -986,6 +1000,10 @@ void uct_ud_ep_process_rx(uct_ud_iface_t *iface, uct_ud_neth_t *neth, unsigned b
     am_id   = uct_ud_neth_get_am_id(neth);
     is_am   = neth->packet_type & UCT_UD_PACKET_FLAG_AM;
 
+//    if (flag) {
+//        printf("before %u %p\n", neth->psn, ep);
+//    }
+
     if (ucs_unlikely(dest_id == UCT_UD_EP_NULL_ID)) {
         /* must be connection request packet */
         uct_ud_ep_rx_creq(iface, neth);
@@ -1000,6 +1018,10 @@ void uct_ud_ep_process_rx(uct_ud_iface_t *iface, uct_ud_neth_t *neth, unsigned b
         ucs_trace("ep %p: dropping packet, point-to-point ep was disconnected",
                   ep);
         goto out;
+    }
+
+    if (flag) {
+        printf("packet %u %p\n", neth->psn, ep);
     }
 
     ucs_assertv(ep->ep_id == dest_id, "ep=%p ep_id=%u dest_id=%u", ep,
@@ -1041,6 +1063,11 @@ void uct_ud_ep_process_rx(uct_ud_iface_t *iface, uct_ud_neth_t *neth, unsigned b
         }
         ucs_trace_data("DUP/OOB - schedule ack, head_sn=%d sn=%d",
                        ep->rx.ooo_pkts.head_sn, neth->psn);
+        if (ooo_type == UCS_FRAG_LIST_INSERT_FAIL) {
+            flag = 1;
+            printf("ooo %u %u %u %p\n", neth->psn, ep->rx.ooo_pkts.head_sn, ooo_type, ep);
+        }
+
         goto out;
     }
 
@@ -1285,6 +1312,8 @@ static uct_ud_send_skb_t *uct_ud_ep_prepare_crep(uct_ud_ep_t *ep)
 
     uct_ud_peer_name(ucs_unaligned_ptr(&crep->peer));
 
+  // printf("send reply to %u\n", crep->peer.pid);
+
     skb->len = sizeof(*neth) + sizeof(*crep);
     uct_ud_ep_ctl_op_del(ep, UCT_UD_EP_OP_CREP);
     return skb;
@@ -1515,6 +1544,7 @@ static void uct_ud_ep_do_pending_ctl(uct_ud_ep_t *ep, uct_ud_iface_t *iface)
         }
     } else if (uct_ud_ep_ctl_op_check(ep, UCT_UD_EP_OP_CREP)) {
         skb = uct_ud_ep_prepare_crep(ep);
+       // printf("uct_ud_ep_prepare_crep %p\n", ep);
         if (skb) {
             uct_ud_ep_set_state(ep, UCT_UD_EP_FLAG_CREP_SENT);
             uct_ud_ep_ctl_op_del(ep, UCT_UD_EP_OP_CREP);
@@ -1713,6 +1743,7 @@ add_req:
     uct_ud_pending_req_priv(req)->flags = flags;
     uct_ud_ep_set_has_pending_flag(ep);
     uct_pending_req_arb_group_push(&ep->tx.pending.group, req);
+   // printf("add req pending queue\n");
     ucs_arbiter_group_schedule(&iface->tx.pending_q, &ep->tx.pending.group);
     ucs_trace_data("ud ep %p: added pending req %p tx_psn %d acked_psn %d cwnd %d",
                    ep, req, ep->tx.psn, ep->tx.acked_psn, ep->ca.cwnd);

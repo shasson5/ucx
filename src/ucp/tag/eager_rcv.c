@@ -90,6 +90,8 @@ ucp_eager_tagged_handler(void *arg, void *data, size_t length, unsigned am_flags
     ucp_request_t *req;
     ucs_status_t status;
 
+   // printf("recvd tag %lu\n", recv_tag);
+
     req = ucp_tag_exp_search(&worker->tm, recv_tag);
     if (req != NULL) {
         recv_len = length - hdr_len;
