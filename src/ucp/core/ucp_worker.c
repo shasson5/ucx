@@ -1702,7 +1702,7 @@ static void ucp_worker_init_device_atomics(ucp_worker_h worker)
         dummy_ae.iface_attr.lat_ovh = ucp_wireup_iface_lat_distance_v2(wiface);
 
         score = ucp_wireup_amo_score_func(wiface, md_attr, &dummy_addr,
-                                          &dummy_ae, NULL);
+                                          &dummy_ae, 0, NULL);
 
         ucs_trace(UCT_TL_RESOURCE_DESC_FMT " atomic score %.2f priority %d",
                   UCT_TL_RESOURCE_DESC_ARG(&rsc->tl_rsc), score, priority);

@@ -86,8 +86,6 @@ typedef struct {
     int                           show_error;       /* Global flag that controls showing
                                                      * errors from a selecting transport
                                                      * procedure */
-    int                           connect_to_ep;    /* Select ifaces that support EP
-                                                       connection */
 } ucp_wireup_select_params_t;
 
 /**
@@ -502,14 +500,6 @@ static UCS_F_NOINLINE ucs_status_t ucp_wireup_select_transport(
             continue;
         }
 
-        if (select_params->connect_to_ep &&
-            !(criteria->tl_rsc_flags & UCP_TL_RSC_FLAG_AUX)) {
-            local_iface_flags.mandatory |= UCT_IFACE_FLAG_CONNECT_TO_EP |
-                                           /* Required for prioritizing RC over UD.
-                                            * TODO: Replace with dynamic NUM_EPS */
-                                           UCT_IFACE_FLAG_PUT_BCOPY;
-        }
-
         has_cm = ucp_ep_init_flags_has_cm(select_params->ep_init_flags);
         if (select_params->ep_init_flags & UCP_EP_INIT_CONNECT_TO_IFACE_ONLY) {
             local_iface_flags.mandatory |= UCT_IFACE_FLAG_CONNECT_TO_IFACE;
@@ -617,6 +607,7 @@ static UCS_F_NOINLINE ucs_status_t ucp_wireup_select_transport(
             }
 
             score        = criteria->calc_score(wiface, md_attr, address, ae,
+                                                select_params->ep_init_flags,
                                                 criteria->arg);
             priority     = iface_attr->priority + ae->iface_attr.priority;
             is_reachable = 1;
@@ -674,18 +665,25 @@ out:
 static inline double
 ucp_wireup_tl_iface_latency(const ucp_worker_iface_t *wiface,
                             const ucp_unpacked_address_t *unpacked_addr,
-                            const ucp_address_iface_attr_t *remote_iface_attr)
+                            const ucp_address_iface_attr_t *remote_iface_attr,
+                            unsigned flags)
 {
     ucp_context_h context = wiface->worker->context;
+    double multiplier     = (flags & UCP_EP_INIT_FLAG_PROMOTED) ?
+                            wiface->attr.latency.m : 0;
     double local_lat, lat_lossy;
+    ucs_linear_func_t lat;
+
 
     if (unpacked_addr->addr_version == UCP_OBJECT_VERSION_V1) {
         local_lat = ucp_wireup_iface_lat_distance_v1(wiface);
         /* Address v1 contains just latency overhead */
         return ((local_lat + remote_iface_attr->lat_ovh) / 2) +
-               (wiface->attr.latency.m * context->config.est_num_eps);
+               (multiplier * context->config.est_num_eps);
     } else {
-        local_lat = ucp_wireup_iface_lat_distance_v2(wiface);
+        lat.m = multiplier;
+        lat.c = ucp_wireup_iface_lat_overhead_v2(wiface);
+        local_lat = ucp_tl_iface_latency(context, &lat);
         /* FP8 is a lossy compression method, so in order to create a symmetric
          * calculation we pack/unpack the local latency as well */
         lat_lossy = ucp_wireup_fp8_pack_unpack_latency(local_lat);
@@ -998,6 +996,7 @@ static double ucp_wireup_rma_score_func(const ucp_worker_iface_t *wiface,
                                         const uct_md_attr_v2_t *md_attr,
                                         const ucp_unpacked_address_t *unpacked_addr,
                                         const ucp_address_entry_t *remote_addr,
+                                        unsigned flags,
                                         void *arg)
 {
     /* best for 4k messages */
@@ -1012,7 +1011,7 @@ static double ucp_wireup_rma_score_func(const ucp_worker_iface_t *wiface,
 
     return 1e-3 /
            (ucp_wireup_tl_iface_latency(
-                wiface, unpacked_addr, &remote_addr->iface_attr) +
+                wiface, unpacked_addr, &remote_addr->iface_attr, flags) +
             wiface->attr.overhead +
             (4096.0 / ucs_min(local_bw, remote_addr->iface_attr.bandwidth)));
 }
@@ -1032,12 +1031,13 @@ static double ucp_wireup_aux_score_func(const ucp_worker_iface_t *wiface,
                                         const uct_md_attr_v2_t *md_attr,
                                         const ucp_unpacked_address_t *unpacked_addr,
                                         const ucp_address_entry_t *remote_addr,
+                                        unsigned flags,
                                         void *arg)
 {
     /* best end-to-end latency and larger bcopy size */
     return (1e-3 /
             (ucp_wireup_tl_iface_latency(
-                wiface, unpacked_addr,  &remote_addr->iface_attr) +
+                wiface, unpacked_addr,  &remote_addr->iface_attr, flags) +
              wiface->attr.overhead + remote_addr->iface_attr.overhead));
 }
 
@@ -1180,12 +1180,13 @@ double ucp_wireup_amo_score_func(const ucp_worker_iface_t *wiface,
                                  const uct_md_attr_v2_t *md_attr,
                                  const ucp_unpacked_address_t *unpacked_addr,
                                  const ucp_address_entry_t *remote_addr,
+                                 unsigned flags,
                                  void *arg)
 {
     /* best one-sided latency */
     return 1e-3 /
            (ucp_wireup_tl_iface_latency(
-                wiface, unpacked_addr, &remote_addr->iface_attr) +
+                wiface, unpacked_addr, &remote_addr->iface_attr, flags) +
             wiface->attr.overhead);
 }
 
@@ -1238,12 +1239,13 @@ static double
 ucp_wireup_am_score_func(const ucp_worker_iface_t *wiface,
                          const uct_md_attr_v2_t *md_attr,
                          const ucp_unpacked_address_t *unpacked_addr,
-                         const ucp_address_entry_t *remote_addr, void *arg)
+                         const ucp_address_entry_t *remote_addr,
+                         unsigned flags, void *arg)
 {
     /* best end-to-end latency */
     return 1e-3 /
            (ucp_wireup_tl_iface_latency(
-                wiface, unpacked_addr, &remote_addr->iface_attr) +
+                wiface, unpacked_addr, &remote_addr->iface_attr, flags) +
             wiface->attr.overhead + remote_addr->iface_attr.overhead);
 }
 
@@ -1337,7 +1339,8 @@ static double
 ucp_wireup_rma_bw_score_func(const ucp_worker_iface_t *wiface,
                              const uct_md_attr_v2_t *md_attr,
                              const ucp_unpacked_address_t *unpacked_addr,
-                             const ucp_address_entry_t *remote_addr, void *arg)
+                             const ucp_address_entry_t *remote_addr,
+                             unsigned flags, void *arg)
 {
     ucp_wireup_dev_usage_count *dev_count = arg;
     ucp_context_t *context                = wiface->worker->context;
@@ -1352,7 +1355,7 @@ ucp_wireup_rma_bw_score_func(const ucp_worker_iface_t *wiface,
                  ucp_wireup_iface_avail_bandwidth(wiface, unpacked_addr,
                                                   remote_addr, dev_count)) +
                 ucp_wireup_tl_iface_latency(wiface, unpacked_addr,
-                                            &remote_addr->iface_attr) +
+                                            &remote_addr->iface_attr, flags) +
                 wiface->attr.overhead +
                 ucs_linear_func_apply(mem_reg_cost,
                                       UCP_WIREUP_RMA_BW_TEST_MSG_SIZE));
@@ -1477,7 +1480,8 @@ static double
 ucp_wireup_am_bw_score_func(const ucp_worker_iface_t *wiface,
                             const uct_md_attr_v2_t *md_attr,
                             const ucp_unpacked_address_t *unpacked_addr,
-                            const ucp_address_entry_t *remote_addr, void *arg)
+                            const ucp_address_entry_t *remote_addr,
+                            unsigned flags, void *arg)
 {
     ucp_wireup_dev_usage_count *dev_count = arg;
 
@@ -1490,7 +1494,7 @@ ucp_wireup_am_bw_score_func(const ucp_worker_iface_t *wiface,
                             wiface, unpacked_addr, remote_addr, dev_count)) +
                   wiface->attr.overhead + remote_addr->iface_attr.overhead +
                   ucp_wireup_tl_iface_latency(wiface, unpacked_addr,
-                                              &remote_addr->iface_attr);
+                                              &remote_addr->iface_attr, flags);
 
     return size / t * 1e-5;
 }
@@ -2099,8 +2103,7 @@ static UCS_F_NOINLINE void
 ucp_wireup_select_params_init(ucp_wireup_select_params_t *select_params,
                               ucp_ep_h ep, unsigned ep_init_flags,
                               const ucp_unpacked_address_t *remote_address,
-                              ucp_tl_bitmap_t tl_bitmap, int show_error,
-                              int connect_to_ep)
+                              ucp_tl_bitmap_t tl_bitmap, int show_error)
 {
     select_params->ep            = ep;
     select_params->ep_init_flags = ep_init_flags;
@@ -2109,10 +2112,6 @@ ucp_wireup_select_params_init(ucp_wireup_select_params_t *select_params,
     select_params->allow_am      =
             ucp_wireup_allow_am_emulation_layer(ep_init_flags);
     select_params->show_error    = show_error;
-    select_params->connect_to_ep = connect_to_ep;
-
-    ucs_assert((connect_to_ep == 0) ||
-               !(ep_init_flags & UCP_EP_INIT_CONNECT_TO_IFACE_ONLY));
 }
 
 static double
@@ -2120,6 +2119,7 @@ ucp_wireup_keepalive_score_func(const ucp_worker_iface_t *wiface,
                                 const uct_md_attr_v2_t *md_attr,
                                 const ucp_unpacked_address_t *unpacked_addr,
                                 const ucp_address_entry_t *remote_addr,
+                                unsigned flags,
                                 void *arg)
 {
     uct_perf_attr_t perf_attr;
@@ -2136,7 +2136,7 @@ ucp_wireup_keepalive_score_func(const ucp_worker_iface_t *wiface,
         return 0;
     }
 
-    return ucp_wireup_am_score_func(wiface, md_attr, unpacked_addr, remote_addr, arg) *
+    return ucp_wireup_am_score_func(wiface, md_attr, unpacked_addr, remote_addr, flags, arg) *
            ((double)perf_attr.max_inflight_eps / (double)SIZE_MAX);
 }
 
@@ -2488,7 +2488,7 @@ ucp_wireup_select_lanes(ucp_ep_h ep, unsigned ep_init_flags,
                         ucp_tl_bitmap_t tl_bitmap,
                         const ucp_unpacked_address_t *remote_address,
                         unsigned *addr_indices, ucp_ep_config_key_t *key,
-                        int show_error, int connect_to_ep)
+                        int show_error)
 {
     ucp_worker_h worker                = ep->worker;
     ucp_tl_bitmap_t scalable_tl_bitmap = worker->scalable_tl_bitmap;
@@ -2503,8 +2503,7 @@ ucp_wireup_select_lanes(ucp_ep_h ep, unsigned ep_init_flags,
 
     if (!UCS_STATIC_BITMAP_IS_ZERO(scalable_tl_bitmap)) {
         ucp_wireup_select_params_init(&select_params, ep, ep_init_flags,
-                                      remote_address, scalable_tl_bitmap, 0,
-                                      connect_to_ep);
+                                      remote_address, scalable_tl_bitmap, 0);
         status = ucp_wireup_search_lanes(&select_params, key->err_mode,
                                          &select_ctx, wireup_info,
                                          sizeof(wireup_info));
@@ -2518,8 +2517,7 @@ ucp_wireup_select_lanes(ucp_ep_h ep, unsigned ep_init_flags,
     }
 
     ucp_wireup_select_params_init(&select_params, ep, ep_init_flags,
-                                  remote_address, tl_bitmap, show_error,
-                                  connect_to_ep);
+                                  remote_address, tl_bitmap, show_error);
     status = ucp_wireup_search_lanes(&select_params, key->err_mode,
                                      &select_ctx, wireup_info,
                                      sizeof(wireup_info));
@@ -2560,7 +2558,7 @@ ucp_wireup_select_aux_transport(ucp_ep_h ep, unsigned ep_init_flags,
     ucs_status_t status;
 
     ucp_wireup_select_params_init(&select_params, ep, ep_init_flags,
-                                  remote_address, tl_bitmap, 1, 0);
+                                  remote_address, tl_bitmap, 1);
 
     /* Select auxiliary transport that supports async active message callback */
     ucp_wireup_fill_aux_criteria(&criteria, ep_init_flags,

@@ -1075,7 +1075,9 @@ ucp_ep_create_api_to_worker_addr(ucp_worker_h worker,
      * in ep_match.
      */
     conn_sn = ucp_ep_match_get_sn(worker, remote_address.uuid);
-    ep      = ucp_ep_match_retrieve(worker, remote_address.uuid, conn_sn,
+    ep      = ucp_ep_match_retrieve(worker, remote_address.uuid,
+                                    conn_sn ^
+                                    (remote_address.uuid == worker->uuid),
                                     UCS_CONN_MATCH_QUEUE_UNEXP);
     if (ep != NULL) {
         status = ucp_ep_adjust_params(ep, params);

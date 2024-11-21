@@ -702,11 +702,15 @@ ucp_wireup_resolve_local_ep(ucp_worker_h worker, ucp_ep_h msg_ep,
         ep_init_flags |= UCP_EP_INIT_CREATE_AM_LANE;
         ucp_ep_match_remove_ep(worker, ep);
     } else {
-        ep = ucp_ep_match_retrieve(worker, remote_uuid, msg->conn_sn,
+        ucs_assert(msg->dst_ep_id == UCS_PTR_MAP_KEY_INVALID);
+        ep = ucp_ep_match_retrieve(worker, remote_uuid,
+                                   msg->conn_sn ^
+                                   (remote_uuid == worker->uuid),
                                    UCS_CONN_MATCH_QUEUE_EXP);
         if (ep == NULL) {
             /* Create a new endpoint if does not exist */
-            status = ucp_ep_create_base(worker, ep_init_flags, remote_address->name,
+            status = ucp_ep_create_base(worker, ep_init_flags,
+                                        remote_address->name,
                                         "remote-request", &ep);
             if (status != UCS_OK) {
                 return NULL;
@@ -723,9 +727,7 @@ ucp_wireup_resolve_local_ep(ucp_worker_h worker, ucp_ep_h msg_ep,
                              worker, ep, worker->context);
                 }
             }
-        }
-
-        else if (!ucp_wireup_is_score_valid(msg->type)) {
+        } else if (!ucp_wireup_is_score_valid(msg->type)) {
             status = ucp_ep_config_err_mode_check_mismatch(ep, msg->err_mode);
             if (status != UCS_OK) {
                 ucp_ep_set_failed_schedule(ep, UCP_NULL_LANE, status);
@@ -872,8 +874,8 @@ static UCS_F_NOINLINE void ucp_wireup_process_promotion_request(
         const ucp_unpacked_address_t *remote_address)
 {
     /* Convert score to be in range [0-1] */
-    double score = (double)msg->score / UINT8_MAX;
-    unsigned ep_init_flags;
+    double score           = (double)msg->score / UINT8_MAX;
+    unsigned ep_init_flags = UCP_EP_INIT_FLAG_PROMOTED;
     ucs_usage_tracker_h usage_tracker;
     ucp_ep_h ep;
 
@@ -1841,8 +1843,7 @@ ucs_status_t ucp_wireup_init_lanes(ucp_ep_h ep, unsigned ep_init_flags,
     key.dst_version = remote_address->dst_version;
 
     status = ucp_wireup_select_lanes(ep, ep_init_flags, tl_bitmap,
-                                     remote_address, addr_indices, &key, 1,
-                                     ucp_ep_is_promoted(ep));
+                                     remote_address, addr_indices, &key, 1);
     if (status != UCS_OK) {
         goto out;
     }
@@ -2207,14 +2208,24 @@ double ucp_wireup_iface_lat_distance_v1(const ucp_worker_iface_t *wiface)
         wiface->attr.latency.c;
 }
 
+double ucp_wireup_iface_lat_overhead_v2(const ucp_worker_iface_t *wiface)
+{
+    ucp_context_h context = wiface->worker->context;
+    double lat            = wiface->attr.latency.c;
+
+    if (context->config.ext.proto_enable) {
+        lat += wiface->distance.latency;
+    }
+
+    return lat;
+}
+
 double ucp_wireup_iface_lat_distance_v2(const ucp_worker_iface_t *wiface)
 {
     ucp_context_h context = wiface->worker->context;
     ucs_linear_func_t lat = wiface->attr.latency;
 
-    if (context->config.ext.proto_enable) {
-        lat.c += wiface->distance.latency;
-    }
+    lat.c = ucp_wireup_iface_lat_overhead_v2(wiface);
     return ucp_tl_iface_latency(context, &lat);
 }
 

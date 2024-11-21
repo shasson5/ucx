@@ -102,6 +102,7 @@ typedef struct {
                                               const uct_md_attr_v2_t *md_attr,
                                               const ucp_unpacked_address_t *unpacked_addr,
                                               const ucp_address_entry_t *remote_addr,
+                                              unsigned flags,
                                               void *arg);
 
     /* Custom argument of @a calc_score function */
@@ -160,6 +161,7 @@ double ucp_wireup_amo_score_func(const ucp_worker_iface_t *wiface,
                                  const uct_md_attr_v2_t *md_attr,
                                  const ucp_unpacked_address_t *unpacked_address,
                                  const ucp_address_entry_t *remote_addr,
+                                 unsigned flags,
                                  void *arg);
 
 size_t ucp_wireup_msg_pack(void *dest, void *arg);
@@ -192,7 +194,7 @@ ucp_wireup_select_lanes(ucp_ep_h ep, unsigned ep_init_flags,
                         ucp_tl_bitmap_t tl_bitmap,
                         const ucp_unpacked_address_t *remote_address,
                         unsigned *addr_indices, ucp_ep_config_key_t *key,
-                        int show_error, int connect_to_ep);
+                        int show_error);
 
 void ucp_wireup_replay_pending_requests(ucp_ep_h ucp_ep,
                                         ucs_queue_head_t *tmp_pending_queue);
@@ -218,6 +220,8 @@ uct_ep_h ucp_wireup_extract_lane(ucp_ep_h ep, ucp_lane_index_t lane);
 unsigned ucp_wireup_eps_progress(void *arg);
 
 double ucp_wireup_iface_lat_distance_v1(const ucp_worker_iface_t *wiface);
+
+double ucp_wireup_iface_lat_overhead_v2(const ucp_worker_iface_t *wiface);
 
 double ucp_wireup_iface_lat_distance_v2(const ucp_worker_iface_t *wiface);
 
