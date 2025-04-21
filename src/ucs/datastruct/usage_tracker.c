@@ -238,21 +238,24 @@ static void ucs_usage_tracker_promote(ucs_usage_tracker_h usage_tracker,
 
         item->promoted = 1;
         if (!is_external_event) {
-            params->promote_cb(item->key, params->promote_arg);
+            item->promoted = params->promote_cb(item->key, params->promote_arg);
         }
     }
 
     for (elem_index = params->promote_capacity; elem_index < elems_count;
          ++elem_index) {
         item = elems_array[elem_index];
-        ucs_usage_tracker_remove(usage_tracker, item->key);
         if (!item->promoted) {
             continue;
         }
 
         item->promoted = 0;
         if (!is_external_event) {
-            params->demote_cb(item->key, params->demote_arg);
+            item->promoted = !params->demote_cb(item->key, params->demote_arg);
+        }
+
+        if (!item->promoted) {
+            ucs_usage_tracker_remove(usage_tracker, item->key);
         }
     }
 
@@ -266,7 +269,9 @@ void ucs_usage_tracker_set_min_score(ucs_usage_tracker_h usage_tracker,
 
     elem            = ucs_usage_tracker_put(usage_tracker, key);
     elem->min_score = score;
-    ucs_usage_tracker_promote(usage_tracker, 1);
+    if (ucs_usage_tracker_is_promotable(usage_tracker, score)) {
+        elem->promoted = 1;
+    }
 }
 
 void ucs_usage_tracker_progress(ucs_usage_tracker_h usage_tracker)
