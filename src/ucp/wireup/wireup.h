@@ -214,6 +214,8 @@ uct_ep_h ucp_wireup_extract_lane(ucp_ep_h ep, ucp_lane_index_t lane);
 
 unsigned ucp_wireup_eps_progress(void *arg);
 
+int ucp_wireup_flush_in_progress(ucp_ep_h ep);
+
 double ucp_wireup_iface_lat_distance_v1(const ucp_worker_iface_t *wiface);
 
 double ucp_wireup_iface_lat_distance_v2(const ucp_worker_iface_t *wiface,

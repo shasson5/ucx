@@ -26,7 +26,7 @@ KHASH_IMPL(ucp_worker_rkey_config, ucp_rkey_config_key_t,
     kh_int64_hash_func((uintptr_t)(_ucp_ep))
 
 
-KHASH_IMPL(ucp_worker_deferred_ep_hash, ucp_ep_h, ucp_worker_deferred_ep_data_t,
+KHASH_IMPL(ucp_worker_deferred_ep_hash, ucp_ep_h, ucp_worker_deferred_ep_t,
            1, ucp_worker_deferred_ep_hash_key, kh_int64_hash_equal);
 
 

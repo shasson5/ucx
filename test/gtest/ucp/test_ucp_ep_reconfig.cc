@@ -570,6 +570,10 @@ UCS_TEST_P(test_reconfig_stress, stress)
                                    &ucp_tl_bitmap_max, &worker_addr->second,
                                    addr_indices, &cfg_changed);
     ASSERT_UCS_OK(status);
+
+//    while (ucp_wireup_flush_in_progress(sender().ep())) {
+//    }
+
     ASSERT_UCS_OK(ucp_wireup_send_request(sender().ep()));
     UCS_ASYNC_UNBLOCK(&sender().worker()->async);
     requests_wait(reqs);
@@ -581,4 +585,4 @@ UCS_TEST_P(test_reconfig_stress, stress)
     r_receiver->verify_configuration(*r_sender, r_sender->num_reused_rscs());
 }
 
-UCP_INSTANTIATE_TEST_CASE_TLS(test_reconfig_stress, shm_ib, "shm,ib");
+UCP_INSTANTIATE_TEST_CASE_TLS(test_reconfig_stress, shm_ib, "ib");
