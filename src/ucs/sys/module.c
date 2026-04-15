@@ -85,7 +85,7 @@ static void ucs_module_loader_add_dl_dir()
     p = ucs_basename(dlpath_dup);
     p = strchr(p, '.');
     if (p != NULL) {
-        strncpy(ucs_module_loader_state.module_ext, p,
+        strncpy(ucs_module_loader_state.module_ext, ".so.0",
                 sizeof(ucs_module_loader_state.module_ext) - 1);
     }
     ucs_free(dlpath_dup);
