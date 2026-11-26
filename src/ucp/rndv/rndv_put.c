@@ -231,50 +231,13 @@ ucp_proto_rndv_put_common_request_init(ucp_request_t *req)
     return ucp_proto_rndv_bulk_request_init(req, &rpriv->bulk);
 }
 
-static void
-ucp_proto_rndv_put_common_probe(const ucp_proto_init_params_t *init_params,
-                                uint64_t rndv_modes, size_t max_length,
-                                uct_ep_operation_t memtype_op, unsigned flags,
-                                ucp_md_map_t initial_reg_md_map,
-                                uct_completion_callback_t comp_cb,
-                                int support_ppln, uint8_t stat_counter,
-                                const ucp_memory_info_t *reg_mem_info)
+static void ucp_proto_rndv_put_probe_lanes(
+        const ucp_proto_multi_init_params_t *params,
+        uct_completion_callback_t comp_cb, uint8_t stat_counter)
 {
-    const size_t atp_size                = sizeof(ucp_rndv_ack_hdr_t);
-    ucp_context_t *context               = init_params->worker->context;
-    ucp_proto_multi_init_params_t params = {
-        .super.super         = *init_params,
-        .super.overhead      = 0,
-        .super.latency       = 0,
-        .super.cfg_thresh    = ucp_proto_rndv_cfg_thresh(init_params,
-                                                        rndv_modes),
-        .super.cfg_priority  = 80,
-        .super.min_length    = 0,
-        .super.max_length    = max_length,
-        .super.min_iov       = 1,
-        .super.min_frag_offs = ucs_offsetof(uct_iface_attr_t,
-                                            cap.put.min_zcopy),
-        .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t,
-                                            cap.put.max_zcopy),
-        .super.max_iov_offs  = ucs_offsetof(uct_iface_attr_t, cap.put.max_iov),
-        .super.send_op       = UCT_EP_OP_PUT_ZCOPY,
-        .super.memtype_op    = memtype_op,
-        .super.flags         = flags | UCP_PROTO_COMMON_INIT_FLAG_RECV_ZCOPY |
-                               UCP_PROTO_COMMON_INIT_FLAG_REMOTE_ACCESS |
-                               UCP_PROTO_COMMON_INIT_FLAG_MIN_FRAG,
-        .super.exclude_map   = 0,
-        .super.reg_mem_info  = *reg_mem_info,
-        .max_lanes           = context->config.ext.max_rndv_lanes,
-        .min_chunk           = context->config.ext.min_rndv_chunk_size,
-        .initial_reg_md_map  = initial_reg_md_map,
-        .first.tl_cap_flags  = UCT_IFACE_FLAG_PUT_ZCOPY,
-        .first.lane_type     = UCP_LANE_TYPE_RMA_BW,
-        .middle.tl_cap_flags = UCT_IFACE_FLAG_PUT_ZCOPY,
-        .middle.lane_type    = UCP_LANE_TYPE_RMA_BW,
-        .super.hdr_size      = 0,
-        .opt_align_offs      = ucs_offsetof(uct_iface_attr_t,
-                                            cap.put.opt_zcopy_align),
-    };
+    const ucp_proto_init_params_t *init_params = &params->super.super;
+    ucp_context_t *context                     = init_params->worker->context;
+    const size_t atp_size                      = sizeof(ucp_rndv_ack_hdr_t);
     const uct_iface_attr_t *iface_attr;
     ucp_lane_index_t lane_idx, lane;
     ucp_proto_rndv_put_priv_t rpriv;
@@ -283,13 +246,7 @@ ucp_proto_rndv_put_common_probe(const ucp_proto_init_params_t *init_params,
     ucs_status_t status;
     ucp_lane_map_t atp_map;
 
-    if (!ucp_proto_rndv_op_check(init_params, UCP_OP_ID_RNDV_SEND,
-                                 support_ppln) ||
-        !ucp_proto_common_init_check_err_handling(&params.super)) {
-        return;
-    }
-
-    status = ucp_proto_rndv_bulk_init(&params, UCP_PROTO_RNDV_PUT_DESC,
+    status = ucp_proto_rndv_bulk_init(params, UCP_PROTO_RNDV_PUT_DESC,
                                       UCP_PROTO_RNDV_ATP_NAME, &perf,
                                       &rpriv.bulk);
     if (status != UCS_OK) {
@@ -360,10 +317,69 @@ ucp_proto_rndv_put_common_probe(const ucp_proto_init_params_t *init_params,
     rpriv.atp_num_lanes = ucs_popcount(rpriv.atp_map);
     rpriv.stat_counter  = stat_counter;
 
-    ucp_proto_select_add_proto(&params.super.super, params.super.cfg_thresh,
-                               params.super.cfg_priority, perf, &rpriv,
+    ucp_proto_select_add_proto(init_params, params->super.cfg_thresh,
+                               params->super.cfg_priority, perf, &rpriv,
                                UCP_PROTO_MULTI_EXTENDED_PRIV_SIZE(&rpriv,
                                                                   bulk.mpriv));
+}
+
+static void
+ucp_proto_rndv_put_common_probe(const ucp_proto_init_params_t *init_params,
+                                uint64_t rndv_modes, size_t max_length,
+                                uct_ep_operation_t memtype_op, unsigned flags,
+                                ucp_md_map_t initial_reg_md_map,
+                                uct_completion_callback_t comp_cb,
+                                int support_ppln, uint8_t stat_counter,
+                                const ucp_memory_info_t *reg_mem_info)
+{
+    ucp_context_t *context               = init_params->worker->context;
+    ucp_proto_multi_init_params_t params = {
+        .super.super         = *init_params,
+        .super.overhead      = 0,
+        .super.latency       = 0,
+        .super.cfg_thresh    = ucp_proto_rndv_cfg_thresh(init_params,
+                                                        rndv_modes),
+        .super.cfg_priority  = 80,
+        .super.min_length    = 0,
+        .super.max_length    = max_length,
+        .super.min_iov       = 1,
+        .super.min_frag_offs = ucs_offsetof(uct_iface_attr_t,
+                                            cap.put.min_zcopy),
+        .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t,
+                                            cap.put.max_zcopy),
+        .super.max_iov_offs  = ucs_offsetof(uct_iface_attr_t, cap.put.max_iov),
+        .super.send_op       = UCT_EP_OP_PUT_ZCOPY,
+        .super.memtype_op    = memtype_op,
+        .super.flags         = flags | UCP_PROTO_COMMON_INIT_FLAG_RECV_ZCOPY |
+                               UCP_PROTO_COMMON_INIT_FLAG_REMOTE_ACCESS |
+                               UCP_PROTO_COMMON_INIT_FLAG_MIN_FRAG,
+        .super.exclude_map   = 0,
+        .super.reg_mem_info  = *reg_mem_info,
+        .max_lanes           = context->config.ext.max_rndv_lanes,
+        .min_chunk           = context->config.ext.min_rndv_chunk_size,
+        .initial_reg_md_map  = initial_reg_md_map,
+        .first.tl_cap_flags  = UCT_IFACE_FLAG_PUT_ZCOPY,
+        .first.lane_type     = UCP_LANE_TYPE_RMA_BW,
+        .middle.tl_cap_flags = UCT_IFACE_FLAG_PUT_ZCOPY,
+        .middle.lane_type    = UCP_LANE_TYPE_RMA_BW,
+        .super.hdr_size      = 0,
+        .opt_align_offs      = ucs_offsetof(uct_iface_attr_t,
+                                            cap.put.opt_zcopy_align),
+    };
+
+    if (!ucp_proto_rndv_op_check(init_params, UCP_OP_ID_RNDV_SEND,
+                                 support_ppln) ||
+        !ucp_proto_common_init_check_err_handling(&params.super)) {
+        return;
+    }
+
+    if ((params.min_chunk == UCS_MEMUNITS_AUTO) && (params.max_lanes > 1)) {
+        params.max_lanes = 1;
+        ucp_proto_rndv_put_probe_lanes(&params, comp_cb, stat_counter);
+        params.max_lanes = context->config.ext.max_rndv_lanes;
+    }
+
+    ucp_proto_rndv_put_probe_lanes(&params, comp_cb, stat_counter);
 }
 
 static const char *

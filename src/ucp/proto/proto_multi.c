@@ -767,6 +767,11 @@ ucp_proto_multi_init_priv(const ucp_proto_multi_init_params_t *params,
                           ucp_proto_multi_priv_t *mpriv,
                           ucp_md_map_t *reg_md_map_p)
 {
+    const ucp_operation_id_t op_id = ucp_proto_select_op_id(
+            params->super.super.select_param);
+    const int auto_chunk           = (params->min_chunk == UCS_MEMUNITS_AUTO) &&
+                                    ((op_id == UCP_OP_ID_RNDV_SEND) ||
+                                     (op_id == UCP_OP_ID_RNDV_RECV));
     const ucp_proto_common_tl_perf_t *lane_perf;
     ucp_proto_multi_lane_priv_t *lpriv;
     uct_iface_attr_v2_t iface_attr_v2;
@@ -814,8 +819,8 @@ ucp_proto_multi_init_priv(const ucp_proto_multi_init_params_t *params,
            Min chunk cannot be less than UCP_MIN_BCOPY, as it's not worth to
            split tiny messages. */
         min_chunk       = ucs_min(lane_perf->max_frag,
-                                  ucs_max(UCP_MIN_BCOPY,
-                                          lane_perf->bandwidth *
+                                  auto_chunk ? UCP_MIN_BCOPY :
+                                  ucs_max(UCP_MIN_BCOPY, lane_perf->bandwidth *
                                           params->min_chunk / min_bandwidth));
         max_frag        = ucs_max(max_frag, min_chunk);
         lpriv->max_frag = max_frag;
@@ -904,6 +909,10 @@ ucp_proto_multi_init_priv(const ucp_proto_multi_init_params_t *params,
 
     if (params->use_single_lane_min_length) {
         perf->min_length = mpriv->min_frag;
+    }
+    if (auto_chunk && (mpriv->num_lanes > 1)) {
+        /* Model multiple rails only when their minimum chunks can fit. */
+        perf->min_length = ucs_max(perf->min_length, min_end_offset);
     }
     *reg_md_map_p    = reg_md_map;
     return UCS_OK;

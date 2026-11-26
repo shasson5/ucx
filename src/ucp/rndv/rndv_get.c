@@ -18,6 +18,25 @@
 #define UCP_PROTO_RNDV_GET_DESC "read from remote"
 
 static void
+ucp_proto_rndv_get_probe_lanes(const ucp_proto_multi_init_params_t *params)
+{
+    ucp_proto_rndv_bulk_priv_t rpriv;
+    ucp_proto_perf_t *perf;
+    ucs_status_t status;
+
+    status = ucp_proto_rndv_bulk_init(params, UCP_PROTO_RNDV_GET_DESC,
+                                      UCP_PROTO_RNDV_ATS_NAME, &perf, &rpriv);
+    if (status != UCS_OK) {
+        return;
+    }
+
+    ucp_proto_select_add_proto(&params->super.super, params->super.cfg_thresh,
+                               params->super.cfg_priority, perf, &rpriv,
+                               UCP_PROTO_MULTI_EXTENDED_PRIV_SIZE(&rpriv,
+                                                                  mpriv));
+}
+
+static void
 ucp_proto_rndv_get_common_probe(const ucp_proto_init_params_t *init_params,
                                 uint64_t rndv_modes, size_t max_length,
                                 uct_ep_operation_t memtype_op, unsigned flags,
@@ -59,25 +78,18 @@ ucp_proto_rndv_get_common_probe(const ucp_proto_init_params_t *init_params,
         .opt_align_offs      = ucs_offsetof(uct_iface_attr_t,
                                             cap.get.opt_zcopy_align),
     };
-    ucp_proto_rndv_bulk_priv_t rpriv;
-    ucp_proto_perf_t *perf;
-    ucs_status_t status;
-
     if (!ucp_proto_rndv_op_check(init_params, UCP_OP_ID_RNDV_RECV,
                                  support_ppln)) {
         return;
     }
 
-    status = ucp_proto_rndv_bulk_init(&params, UCP_PROTO_RNDV_GET_DESC,
-                                      UCP_PROTO_RNDV_ATS_NAME, &perf, &rpriv);
-    if (status != UCS_OK) {
-        return;
+    if ((params.min_chunk == UCS_MEMUNITS_AUTO) && (params.max_lanes > 1)) {
+        params.max_lanes = 1;
+        ucp_proto_rndv_get_probe_lanes(&params);
+        params.max_lanes = context->config.ext.max_rndv_lanes;
     }
 
-    ucp_proto_select_add_proto(&params.super.super, params.super.cfg_thresh,
-                               params.super.cfg_priority, perf, &rpriv,
-                               UCP_PROTO_MULTI_EXTENDED_PRIV_SIZE(&rpriv,
-                                                                  mpriv));
+    ucp_proto_rndv_get_probe_lanes(&params);
 }
 
 static UCS_F_ALWAYS_INLINE ucs_status_t

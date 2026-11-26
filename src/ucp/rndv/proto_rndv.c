@@ -749,6 +749,13 @@ ucp_proto_rndv_bulk_init(const ucp_proto_multi_init_params_t *init_params,
         return status;
     }
 
+    if ((init_params->min_chunk == UCS_MEMUNITS_AUTO) &&
+        (init_params->max_lanes > 1) && (mpriv->num_lanes == 1)) {
+        /* The one-rail probe already covered this configuration. */
+        status = UCS_ERR_UNSUPPORTED;
+        goto out_destroy_bulk_perf;
+    }
+
     /* Adjust align split threshold by user configuration */
     mpriv->align_thresh = ucs_max(rndv_align_thresh,
                                   mpriv->align_thresh + mpriv->min_frag);

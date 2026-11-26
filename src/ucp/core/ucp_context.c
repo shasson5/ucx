@@ -254,7 +254,8 @@ static ucs_config_field_t ucp_context_config_table[] = {
 
   {"MIN_RNDV_CHUNK_SIZE", "16k",
    "Minimum chunk size to split the message sent with rendezvous protocol on\n"
-   "multiple rails. Must be greater than 0.",
+   "multiple rails. Use 'auto' to select the rail count by estimated cost,\n"
+   "or specify a chunk size greater than 0.",
    ucs_offsetof(ucp_context_config_t, min_rndv_chunk_size), UCS_CONFIG_TYPE_MEMUNITS},
 
   {"MIN_RMA_CHUNK_SIZE", "8k",
@@ -2552,6 +2553,12 @@ static ucs_status_t ucp_fill_config(ucp_context_h context,
     if (context->config.ext.min_rndv_chunk_size == 0) {
         ucs_error("minimum chunk size for rendezvous protocol must be greater"
                   " than 0");
+        return UCS_ERR_INVALID_PARAM;
+    }
+
+    if ((context->config.ext.min_rndv_chunk_size == UCS_MEMUNITS_AUTO) &&
+        !context->config.ext.proto_enable) {
+        ucs_error("UCX_MIN_RNDV_CHUNK_SIZE=auto requires UCX_PROTO_ENABLE=y");
         return UCS_ERR_INVALID_PARAM;
     }
 

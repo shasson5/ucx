@@ -1027,6 +1027,72 @@ UCS_TEST_P(test_ucp_proto_mock_rcx, rndv_send_recv_small_frag,
     send_recv_am_range(UCS_KBYTE, 64 * UCS_KBYTE, UCS_KBYTE);
 }
 
+UCS_TEST_P(test_ucp_proto_mock_rcx, rndv_auto_chunk_candidates,
+           "IB_NUM_PATHS?=1", "MAX_RNDV_LANES=2", "RNDV_THRESH=0",
+           "MIN_RNDV_CHUNK_SIZE=auto")
+{
+    mem_buffer remote_buffer(64 * UCS_KBYTE, UCS_MEMORY_TYPE_HOST);
+
+    ucp_worker_h worker              = sender().worker();
+    auto memh                        = mem_map(receiver(), remote_buffer);
+    auto rkey_packed                 = rkey_pack(receiver(), memh);
+    auto rkey                        = rkey_unpack(sender().ep(), rkey_packed);
+    ucp_rkey_config_t *rkey_config   = ucp_worker_rkey_config(worker,
+                                                            rkey->cfg_index);
+    const ucp_memory_info_t mem_info = {
+        .type    = UCS_MEMORY_TYPE_HOST,
+        .sys_dev = UCS_SYS_DEVICE_ID_UNKNOWN,
+        .flags   = UCS_MEM_FLAG_REGISTRABLE
+    };
+
+    for (auto op_id : {UCP_OP_ID_RNDV_RECV, UCP_OP_ID_RNDV_SEND}) {
+        const char *proto_name = (op_id == UCP_OP_ID_RNDV_RECV) ?
+                                         "rndv/get/zcopy" : "rndv/put/zcopy";
+        bool single_lane       = false;
+        bool two_lanes         = false;
+        ucp_proto_select_param_t select_param;
+        const ucp_proto_select_elem_t *select_elem;
+        const ucp_proto_init_elem_t *proto;
+
+        ucp_proto_select_param_init(&select_param, op_id, 0, 0,
+                                    UCP_DATATYPE_CONTIG, &mem_info, 1);
+        select_elem = ucp_proto_select_lookup_slow(worker,
+                                                   &rkey_config->proto_select,
+                                                   1, ep_config_index(sender()),
+                                                   rkey->cfg_index,
+                                                   &select_param);
+        ASSERT_NE(nullptr, select_elem);
+
+        ucs_array_for_each(proto, &select_elem->proto_init.protocols) {
+            if (strcmp(ucp_proto_id_field(proto->proto_id, name),
+                       proto_name) != 0) {
+                continue;
+            }
+
+            const ucp_proto_query_params_t query_params = {
+                .proto         = ucp_protocols[proto->proto_id],
+                .priv          = &ucs_array_elem(
+                        &select_elem->proto_init.priv_buf, proto->priv_offset),
+                .worker        = worker,
+                .select_param  = &select_param,
+                .ep_config_key = &ucp_worker_ep_config(
+                        worker, ep_config_index(sender()))->key,
+                .msg_length    = UCS_KBYTE
+            };
+            ucp_proto_query_attr_t attr;
+
+            query_params.proto->query(&query_params, &attr);
+            single_lane |= ucs_popcount(attr.lane_map) == 1;
+            two_lanes   |= ucs_popcount(attr.lane_map) == 2;
+        }
+
+        EXPECT_TRUE(single_lane) << proto_name;
+        EXPECT_TRUE(two_lanes) << proto_name;
+    }
+
+    send_recv_am_range(512, 64 * UCS_KBYTE, 512);
+}
+
 UCS_TEST_P(test_ucp_proto_mock_rcx, rndv_4_paths,
            "IB_NUM_PATHS?=4", "MAX_RNDV_LANES=8", "RNDV_THRESH=0")
 {
